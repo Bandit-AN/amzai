@@ -1,0 +1,19 @@
+{
+  "name": "amzai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Queued multi-tenant Walmart-to-Amazon sourcing prototype",
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check lib/platform.js && node --check api/cron.js && node --check api/analyze.js && node --check api/finalize.js && node --check api/worker.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.29.0",
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2"
+  }
+}

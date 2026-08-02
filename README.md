@@ -1,0 +1,83 @@
+# AMZ AI Multi-Tenant OA Prototype
+
+A queued Walmart-to-Amazon sourcing pipeline for 1–10 students. It targets up to 10 strictly unique candidate deals per student each morning; it never weakens filters or duplicates a deal to fill an undersupplied digest.
+
+## Pipeline
+
+```text
+Vercel cron
+  → scrape configured Walmart pages once
+  → QStash analysis jobs (small independent chunks)
+  → Redis qualified-deal pool
+  → one allocation job (strict daily uniqueness)
+  → QStash delivery job per student
+  → private Discord webhooks
+```
+
+Splitting work prevents one long HTTP execution from owning the whole run and gives each chunk independent retries. It does not bypass Vercel account usage, scraper credits, Gemini usage, or Keepa tokens.
+
+## Airtable setup
+
+Create a table named `Students` with these exact fields:
+
+| Field | Airtable type | Required |
+|---|---|---|
+| `Name` | Single line text | Yes |
+| `Email` | Email | Optional |
+| `Status` | Single select (`Active`, `Inactive`) | Yes |
+| `Discord Webhook URL` | URL | Yes |
+| `Minimum ROI` | Number | Optional; defaults to platform value |
+| `Minimum Monthly Sales` | Number | Optional; defaults to platform value |
+| `Maximum Cost` | Currency | Optional |
+| `Excluded Brands` | Long text or multiple select | Optional |
+
+Create a scoped Airtable personal access token with `data.records:read` access to this base. The prototype reads at most 10 active students. Softr can edit this table, but never expose the full Discord webhook after it is saved; a production system should move webhooks into encrypted secret storage.
+
+## Services and environment
+
+Copy `.env.example` to `.env` and set the same variables in Vercel for Production, Preview, and Development.
+
+- ScrapingBee: one platform key and a comma-separated set of Walmart URLs. Add category and pagination URLs to grow the candidate pool without asking students for scraper keys.
+- Gemini: one platform key used only to normalize product identity.
+- Keepa: one platform key used for catalog matching, live price/history fields, and a monthly-sales signal.
+- Airtable: student roster and preferences.
+- Upstash QStash: durable fan-out and retry delivery.
+- Upstash Redis: temporary run/chunk/results state with a default 48-hour TTL.
+- `PUBLIC_BASE_URL`: the production Vercel origin, without a trailing slash.
+- `CRON_SECRET`: Vercel sends this to the cron endpoint as a bearer token.
+- `WORKER_SECRET`: a separate random secret QStash forwards to internal endpoints.
+
+Generate secrets locally:
+
+```bash
+openssl rand -hex 32
+```
+
+## Qualification and allocation
+
+The platform screens for ROI ≥ 50% and estimated monthly sales ≥ 200 by default. Estimated profit subtracts Walmart cost, Keepa's available FBA pick/pack fee, referral percentage, and `PER_ITEM_FEE_BUFFER`. These are estimates, not purchase advice.
+
+Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
+
+The finalizer deduplicates by ASIN, ranks qualified deals, rotates the student order deterministically per run, and assigns every deal to at most one student. Student ROI, sales, maximum-cost, and excluded-brand preferences are enforced during allocation. If fewer deals qualify, students receive fewer than 10.
+
+## Run locally
+
+Use Node 20.18.1 or newer:
+
+```bash
+npm install
+npm test
+npm run check
+npx vercel dev
+```
+
+QStash requires publicly reachable worker URLs, so a complete queue test needs a deployed Preview/Production URL or a secure tunnel. Trigger the production cron manually with:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" "$PUBLIC_BASE_URL/api/cron"
+```
+
+## Scale expectations
+
+Ten students receiving ten strictly unique deals requires 100 qualified products. At a 1% qualification rate, that implies roughly 10,000 raw candidates; at 2%, roughly 5,000. Start with `MAX_CANDIDATES_PER_RUN=1000`, measure every stage, then increase source coverage and token budgets based on observed yield. A paid student product is commercial; treat free service tiers as prototype allowances rather than a permanent cost model.
