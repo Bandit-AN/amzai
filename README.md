@@ -16,7 +16,7 @@ Vercel cron
 
 Splitting work prevents one long HTTP execution from owning the whole run and gives each chunk independent retries. It does not bypass Vercel account usage, scraper credits, Gemini usage, or Keepa tokens.
 
-The prototype defaults to `KEEPA_TOKENS_PER_MINUTE=1` and a conservative budget of `3` tokens per candidate. Before queueing, it reads Keepa's token balance without spending a token and delays the first job long enough to recover any deficit. QStash then spaces candidates about three minutes apart. When Keepa is upgraded, set `KEEPA_TOKENS_PER_MINUTE=20`; spacing automatically drops to about nine seconds without a code change.
+The prototype defaults to `KEEPA_TOKENS_PER_MINUTE=1` and a conservative budget of `3` tokens per candidate. Before queueing, it reads Keepa's token balance without spending a token and delays the first job long enough to recover any deficit. QStash then spaces candidates about three minutes apart. Product lookup intentionally excludes Keepa's optional offers payload because the profitability calculator does not consume it and it can add substantial token cost. When Keepa is upgraded, set `KEEPA_TOKENS_PER_MINUTE=20`; spacing automatically drops to about nine seconds without a code change.
 
 ## Airtable setup
 
