@@ -42,6 +42,7 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - Keepa: one platform key used for catalog matching, live price/history fields, and a monthly-sales signal.
 - Airtable: student roster and preferences.
 - Upstash QStash: durable fan-out and retry delivery.
+- `QSTASH_URL`: use the regional endpoint matching the token shown in the QStash console (`https://qstash-us-east-1.upstash.io` for US or `https://qstash.upstash.io` for EU).
 - Upstash Redis: temporary run/chunk/results state with a default 48-hour TTL.
 - `PUBLIC_BASE_URL`: the production Vercel origin, without a trailing slash.
 - `CRON_SECRET`: Vercel sends this to the cron endpoint as a bearer token.
