@@ -10,6 +10,7 @@
     "api/cron.js": { "maxDuration": 60 },
     "api/analyze.js": { "maxDuration": 60 },
     "api/finalize.js": { "maxDuration": 30 },
+    "api/status.js": { "maxDuration": 10 },
     "api/worker.js": { "maxDuration": 30 }
   }
 }

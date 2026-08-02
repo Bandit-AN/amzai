@@ -25,17 +25,16 @@ export default async function handler(request, response) {
     const meta = await redis.get(`run:${runId}:meta`);
     if (!meta) throw new Error('Run metadata was not found or expired');
     const rawDeals = await redis.lrange(`run:${runId}:qualified`, 0, -1);
+    const analysisErrors = await redis.lrange(`run:${runId}:errors`, 0, -1);
     const assignments = allocateDeals(rawDeals, meta.students, meta.targetDealsPerStudent, runId);
     const deliveryJobs = [];
     for (const [studentId, deals] of Object.entries(assignments)) {
       await redis.set(`run:${runId}:assignment:${studentId}`, deals, { ex: config.runTtlSeconds });
-      if (deals.length > 0) {
-        deliveryJobs.push({
-          url: `${config.publicBaseUrl}/api/worker`,
-          body: { runId, studentId },
-          deduplicationId: `${runId}-deliver-${studentId}`,
-        });
-      }
+      deliveryJobs.push({
+        url: `${config.publicBaseUrl}/api/worker`,
+        body: { runId, studentId },
+        deduplicationId: `${runId}-deliver-${studentId}`,
+      });
     }
     if (deliveryJobs.length > 0) await publishBatch(deliveryJobs);
     await redis.set(`run:${runId}:finalized`, true, { ex: config.runTtlSeconds });
@@ -47,6 +46,7 @@ export default async function handler(request, response) {
       qualified: rawDeals.length,
       assigned,
       studentsReceivingDeals: deliveryJobs.length,
+      analysisErrors: analysisErrors.length,
       unfilledSlots: Math.max(0, meta.students.length * meta.targetDealsPerStudent - assigned),
     });
   } catch (error) {

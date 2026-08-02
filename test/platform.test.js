@@ -6,11 +6,24 @@ process.env.MINIMUM_ROI = '50';
 process.env.MINIMUM_MONTHLY_SALES = '200';
 
 const {
+  analysisDelaySeconds,
   allocateDeals,
   calculateDeal,
   discordPayload,
+  emptyDiscordPayload,
+  keepaInitialDelaySeconds,
   normalizeWalmartPayload,
 } = await import('../lib/platform.js');
+
+test('spaces one-token Keepa analysis jobs three minutes apart', () => {
+  assert.equal(analysisDelaySeconds(0, 1, 3), 0);
+  assert.equal(analysisDelaySeconds(1, 1, 3), 180);
+  assert.equal(analysisDelaySeconds(2, 1, 3), 360);
+  assert.equal(analysisDelaySeconds(1, 20, 3), 9);
+  assert.equal(analysisDelaySeconds(1, 1, 3, 120), 300);
+  assert.equal(keepaInitialDelaySeconds(-45, 1, 3), 2880);
+  assert.equal(keepaInitialDelaySeconds(60, 1, 3), 0);
+});
 
 test('normalizes and deduplicates Walmart candidates by item ID', () => {
   const products = normalizeWalmartPayload({ items: [
@@ -76,4 +89,12 @@ test('Discord cards include the mandatory manual IP warning', () => {
     amazonPrice: 30, estimatedProfit: 10, roi: 100, estimatedMonthlySales: 500,
   }]);
   assert.match(payload.embeds[0].fields.at(-1).value, /not verified by Keepa/i);
+});
+
+test('zero-deal Discord message reports analysis errors', () => {
+  const payload = emptyDiscordPayload({ name: 'Student' }, { candidateCount: 47, failedCandidates: 3 });
+  assert.match(payload.content, /no products passed/i);
+  assert.match(payload.content, /47 Walmart candidates/);
+  assert.match(payload.content, /3 API or matching errors/);
+  assert.deepEqual(payload.embeds, []);
 });

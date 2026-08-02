@@ -7,7 +7,7 @@ A queued Walmart-to-Amazon sourcing pipeline for 1–10 students. It targets up 
 ```text
 Vercel cron
   → scrape configured Walmart pages once
-  → QStash analysis jobs (small independent chunks)
+  → QStash analysis jobs (one candidate each, token-rate staggered)
   → Redis qualified-deal pool
   → one allocation job (strict daily uniqueness)
   → QStash delivery job per student
@@ -15,6 +15,8 @@ Vercel cron
 ```
 
 Splitting work prevents one long HTTP execution from owning the whole run and gives each chunk independent retries. It does not bypass Vercel account usage, scraper credits, Gemini usage, or Keepa tokens.
+
+The prototype defaults to `KEEPA_TOKENS_PER_MINUTE=1` and a conservative budget of `3` tokens per candidate. Before queueing, it reads Keepa's token balance without spending a token and delays the first job long enough to recover any deficit. QStash then spaces candidates about three minutes apart. When Keepa is upgraded, set `KEEPA_TOKENS_PER_MINUTE=20`; spacing automatically drops to about nine seconds without a code change.
 
 ## Airtable setup
 
@@ -47,6 +49,8 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `PUBLIC_BASE_URL`: the production Vercel origin, without a trailing slash.
 - `CRON_SECRET`: Vercel sends this to the cron endpoint as a bearer token.
 - `WORKER_SECRET`: a separate random secret QStash forwards to internal endpoints.
+- `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
+- `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for search plus product details; defaults to `3`.
 
 Generate secrets locally:
 
@@ -78,6 +82,15 @@ QStash requires publicly reachable worker URLs, so a complete queue test needs a
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" "$PUBLIC_BASE_URL/api/cron"
 ```
+
+Check a run without exposing student credentials:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "$PUBLIC_BASE_URL/api/status?runId=YOUR_RUN_ID"
+```
+
+The production cron is configured for `13:00 UTC` daily (6:00 AM Pacific during daylight saving time and 5:00 AM Pacific during standard time). Vercel cron schedules are UTC and only invoke production deployments.
 
 ## Scale expectations
 

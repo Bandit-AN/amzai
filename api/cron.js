@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  analysisDelaySeconds,
   config,
   fetchActiveStudents,
+  fetchKeepaTokenStatus,
   fetchWalmartCatalog,
   jsonResponse,
+  keepaInitialDelaySeconds,
   publishBatch,
   redis,
   requireEnvironment,
@@ -20,7 +23,7 @@ export default async function handler(request, response) {
     requireEnvironment([
       'WALMART_SCRAPER_API_KEY', 'WALMART_TARGET_URLS', 'AIRTABLE_PAT',
       'AIRTABLE_BASE_ID', 'QSTASH_TOKEN', 'UPSTASH_REDIS_REST_URL',
-      'UPSTASH_REDIS_REST_TOKEN', 'PUBLIC_BASE_URL', 'WORKER_SECRET',
+      'UPSTASH_REDIS_REST_TOKEN', 'PUBLIC_BASE_URL', 'WORKER_SECRET', 'KEEPA_API_KEY',
     ]);
     const [students, candidates] = await Promise.all([
       fetchActiveStudents(),
@@ -30,10 +33,14 @@ export default async function handler(request, response) {
     if (candidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
 
     const runId = `${new Date().toISOString().slice(0, 10)}-${randomUUID()}`;
-    const chunks = [];
-    for (let index = 0; index < candidates.length; index += config.analysisChunkSize) {
-      chunks.push(candidates.slice(index, index + config.analysisChunkSize));
-    }
+    const chunks = candidates.map((candidate) => [candidate]);
+    const keepaStatus = await fetchKeepaTokenStatus();
+    const effectiveRefillRate = Math.min(config.keepaTokensPerMinute, keepaStatus.refillRate);
+    const initialDelaySeconds = keepaInitialDelaySeconds(
+      keepaStatus.tokensLeft,
+      effectiveRefillRate,
+      config.keepaTokensPerCandidate,
+    );
     const run = {
       runId,
       createdAt: new Date().toISOString(),
@@ -42,6 +49,9 @@ export default async function handler(request, response) {
       candidateCount: candidates.length,
       totalChunks: chunks.length,
       targetDealsPerStudent: config.targetDealsPerStudent,
+      keepaTokensAtQueueTime: keepaStatus.tokensLeft,
+      keepaTokensPerMinute: effectiveRefillRate,
+      initialDelaySeconds,
     };
     await Promise.all([
       redis.set(`run:${runId}:meta`, run, { ex: config.runTtlSeconds }),
@@ -53,6 +63,12 @@ export default async function handler(request, response) {
       url: `${config.publicBaseUrl}/api/analyze`,
       body: { runId, chunkIndex },
       deduplicationId: `${runId}-analyze-${chunkIndex}`,
+      delaySeconds: analysisDelaySeconds(
+        chunkIndex,
+        effectiveRefillRate,
+        config.keepaTokensPerCandidate,
+        initialDelaySeconds,
+      ),
     })));
     console.log(JSON.stringify({ event: 'run_queued', runId, students: students.length, candidates: candidates.length, chunks: chunks.length }));
     return jsonResponse(response, 202, {
@@ -61,6 +77,13 @@ export default async function handler(request, response) {
       students: students.length,
       candidates: candidates.length,
       analysisJobs: chunks.length,
+      initialDelayMinutes: Math.ceil(initialDelaySeconds / 60),
+      estimatedAnalysisMinutes: Math.ceil(analysisDelaySeconds(
+        Math.max(0, chunks.length - 1),
+        effectiveRefillRate,
+        config.keepaTokensPerCandidate,
+        initialDelaySeconds,
+      ) / 60),
       targetUniqueDeals: students.length * config.targetDealsPerStudent,
     });
   } catch (error) {

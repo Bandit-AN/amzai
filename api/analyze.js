@@ -36,7 +36,9 @@ export default async function handler(request, response) {
           qualified += 1;
         }
       } catch (error) {
-        errors.push({ title: candidate.title, message: error.message });
+        const detail = { chunkIndex, title: candidate.title, message: error.message };
+        errors.push(detail);
+        await redis.rpush(`run:${runId}:errors`, detail);
       }
     }
 

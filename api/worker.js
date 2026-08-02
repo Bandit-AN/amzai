@@ -3,6 +3,7 @@ import axios from 'axios';
 import {
   config,
   discordPayload,
+  emptyDiscordPayload,
   jsonResponse,
   readJsonBody,
   redis,
@@ -30,7 +31,11 @@ export default async function handler(request, response) {
     const student = meta?.students?.find((item) => item.id === studentId);
     if (!student || !Array.isArray(deals)) throw new Error('Student or assignment was not found');
 
-    await axios.post(student.discordWebhookUrl, discordPayload(student, deals), {
+    const errors = deals.length === 0 ? await redis.lrange(`run:${runId}:errors`, 0, -1) : [];
+    const payload = deals.length > 0
+      ? discordPayload(student, deals)
+      : emptyDiscordPayload(student, { candidateCount: meta.candidateCount, failedCandidates: errors.length });
+    await axios.post(student.discordWebhookUrl, payload, {
       timeout: config.requestTimeoutMs,
     });
     await redis.set(`run:${runId}:delivered:${studentId}`, true, { ex: config.runTtlSeconds });
