@@ -7,6 +7,7 @@
     }
   ],
   "functions": {
+    "api/admin.js": { "maxDuration": 10 },
     "api/cron.js": { "maxDuration": 60 },
     "api/analyze.js": { "maxDuration": 60 },
     "api/finalize.js": { "maxDuration": 30 },

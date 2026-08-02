@@ -58,6 +58,8 @@ export default async function handler(request, response) {
       ...chunks.map((chunk, index) =>
         redis.set(`run:${runId}:chunk:${index}`, chunk, { ex: config.runTtlSeconds })),
     ]);
+    await redis.lpush('runs:recent', runId);
+    await redis.ltrim('runs:recent', 0, 19);
 
     await publishBatch(chunks.map((_, chunkIndex) => ({
       url: `${config.publicBaseUrl}/api/analyze`,

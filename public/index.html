@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08111f">
+  <title>AMZ AI Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="glow glow-one"></div><div class="glow glow-two"></div>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">A</span><span>AMZ AI</span></a>
+      <div class="top-actions">
+        <span class="live-pill"><i></i> Production</span>
+        <button class="ghost-button" id="lockButton" type="button">Lock</button>
+      </div>
+    </header>
+
+    <section class="login-card" id="loginView">
+      <div class="eyebrow">Private operations portal</div>
+      <h1>Find better inventory.<br><span>Before the market does.</span></h1>
+      <p>Unlock the sourcing command center with your admin secret. It stays in this browser tab and is never saved by the portal.</p>
+      <form id="loginForm">
+        <label for="secretInput">Admin secret</label>
+        <div class="secret-row">
+          <input id="secretInput" type="password" autocomplete="current-password" placeholder="Enter CRON_SECRET" required>
+          <button class="primary-button" type="submit">Open dashboard <span>→</span></button>
+        </div>
+        <p class="form-error" id="loginError" role="alert"></p>
+      </form>
+    </section>
+
+    <section class="dashboard hidden" id="dashboardView">
+      <div class="hero-row">
+        <div>
+          <div class="eyebrow">Sourcing operations</div>
+          <h1>Good morning, Bandit.</h1>
+          <p>One shared Walmart scan. Strictly unique opportunities. Delivered automatically.</p>
+        </div>
+        <div class="hero-actions">
+          <button class="secondary-button" id="refreshButton" type="button">Refresh</button>
+          <button class="primary-button" id="runButton" type="button">Run sourcing now</button>
+        </div>
+      </div>
+
+      <div class="notice hidden" id="notice" role="status"></div>
+
+      <section class="metric-grid">
+        <article class="metric-card accent-card">
+          <span class="metric-label">Keepa capacity</span>
+          <strong id="keepaTokens">—</strong>
+          <span class="metric-detail" id="keepaDetail">Checking token balance</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Active students</span>
+          <strong id="studentCount">—</strong>
+          <span class="metric-detail">Target: 10 unique deals each</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Latest run</span>
+          <strong id="latestStatus">—</strong>
+          <span class="metric-detail" id="latestDetail">No run loaded</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Daily automation</span>
+          <strong>13:00</strong>
+          <span class="metric-detail">UTC · 5–6 AM Pacific</span>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel runs-panel">
+          <div class="panel-heading">
+            <div><span class="eyebrow">Pipeline</span><h2>Recent sourcing runs</h2></div>
+            <span class="auto-refresh">Auto-refresh · 30s</span>
+          </div>
+          <div id="runsList" class="runs-list"><div class="empty-state">No indexed runs yet. The next run will appear here.</div></div>
+        </article>
+
+        <aside class="panel students-panel">
+          <div class="panel-heading"><div><span class="eyebrow">Distribution</span><h2>Students</h2></div></div>
+          <div id="studentsList" class="students-list"></div>
+        </aside>
+      </section>
+
+      <section class="panel system-panel">
+        <div><span class="eyebrow">How it works</span><h2>Daily sourcing flow</h2></div>
+        <div class="flow">
+          <div class="flow-step"><b>01</b><span><strong>Scan</strong><small>Walmart deals once</small></span></div>
+          <i>→</i><div class="flow-step"><b>02</b><span><strong>Identify</strong><small>Gemini catalog match</small></span></div>
+          <i>→</i><div class="flow-step"><b>03</b><span><strong>Qualify</strong><small>Keepa ROI and sales</small></span></div>
+          <i>→</i><div class="flow-step"><b>04</b><span><strong>Allocate</strong><small>Strict unique deals</small></span></div>
+          <i>→</i><div class="flow-step"><b>05</b><span><strong>Deliver</strong><small>Private Discord</small></span></div>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+const $ = (selector) => document.querySelector(selector);
+const loginView = $('#loginView');
+const dashboardView = $('#dashboardView');
+const loginForm = $('#loginForm');
+const secretInput = $('#secretInput');
+const loginError = $('#loginError');
+const refreshButton = $('#refreshButton');
+const runButton = $('#runButton');
+const lockButton = $('#lockButton');
+const notice = $('#notice');
+let secret = sessionStorage.getItem('amzai_admin_secret') || '';
+let refreshTimer;
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+})[character]);
+
+const api = async (path) => {
+  const response = await fetch(path, { headers: { Authorization: `Bearer ${secret}` } });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+  return body;
+};
+
+const formatDate = (value) => value ? new Intl.DateTimeFormat('en-US', {
+  month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+}).format(new Date(value)) : 'Unknown time';
+
+const showNotice = (message, error = false) => {
+  notice.textContent = message;
+  notice.classList.remove('hidden');
+  notice.style.borderColor = error ? 'rgba(255,107,107,.3)' : '';
+  notice.style.color = error ? '#ffaaaa' : '';
+};
+
+function renderRuns(runs) {
+  const list = $('#runsList');
+  if (!runs.length) {
+    list.innerHTML = '<div class="empty-state">No indexed runs yet. The next run will appear here.</div>';
+    $('#latestStatus').textContent = 'Ready';
+    $('#latestDetail').textContent = 'Waiting for the next run';
+    return;
+  }
+  const latest = runs[0];
+  $('#latestStatus').textContent = latest.status === 'finalized' ? 'Complete' : 'Analyzing';
+  $('#latestDetail').textContent = `${latest.completedJobs}/${latest.totalJobs} jobs · ${latest.qualifiedDeals} qualified`;
+  list.innerHTML = runs.map((run) => {
+    const total = Math.max(1, Number(run.totalJobs || 0));
+    const percent = Math.min(100, Math.round((Number(run.completedJobs || 0) / total) * 100));
+    const deliveries = (run.delivery || []).filter((item) => item.delivered).length;
+    return `<div class="run-card">
+      <div class="run-top"><div><div class="run-id">${escapeHtml(run.runId)}</div><span class="metric-detail">${formatDate(run.createdAt)}</span></div><span class="status ${run.status === 'finalized' ? 'finalized' : ''}">${escapeHtml(run.status)}</span></div>
+      <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
+      <div class="run-stats"><span><b>${run.completedJobs}/${run.totalJobs}</b> analyzed</span><span><b>${run.qualifiedDeals}</b> qualified</span><span><b>${run.analysisErrors}</b> errors</span><span><b>${deliveries}</b> delivered</span></div>
+    </div>`;
+  }).join('');
+}
+
+function renderStudents(students) {
+  $('#studentCount').textContent = students.length;
+  $('#studentsList').innerHTML = students.length ? students.map((student) => `<div class="student">
+    <div class="avatar">${escapeHtml(String(student.name || '?').slice(0, 1).toUpperCase())}</div>
+    <div class="student-info"><strong>${escapeHtml(student.name)}</strong><small>≥ ${escapeHtml(student.minRoi)}% ROI · ≥ ${escapeHtml(student.minMonthlySales)} sales/mo</small></div>
+    <span class="ready-dot" title="Discord configured"></span>
+  </div>`).join('') : '<div class="empty-state">No active students</div>';
+}
+
+async function loadDashboard() {
+  refreshButton.disabled = true;
+  try {
+    const data = await api('/api/admin');
+    loginView.classList.add('hidden');
+    dashboardView.classList.remove('hidden');
+    lockButton.classList.remove('hidden');
+    $('#keepaTokens').textContent = data.keepa.tokensLeft;
+    $('#keepaDetail').textContent = `${data.keepa.refillRate} token/minute refill`;
+    renderStudents(data.students || []);
+    renderRuns(data.runs || []);
+    loginError.textContent = '';
+  } catch (error) {
+    if (dashboardView.classList.contains('hidden')) loginError.textContent = error.message;
+    else showNotice(error.message, true);
+    if (/unauthorized/i.test(error.message)) lock();
+    throw error;
+  } finally { refreshButton.disabled = false; }
+}
+
+function lock() {
+  secret = '';
+  sessionStorage.removeItem('amzai_admin_secret');
+  clearInterval(refreshTimer);
+  dashboardView.classList.add('hidden');
+  loginView.classList.remove('hidden');
+  lockButton.classList.add('hidden');
+  secretInput.value = '';
+}
+
+loginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  secret = secretInput.value.trim();
+  sessionStorage.setItem('amzai_admin_secret', secret);
+  try { await loadDashboard(); refreshTimer = setInterval(loadDashboard, 30000); }
+  catch { sessionStorage.removeItem('amzai_admin_secret'); }
+});
+refreshButton.addEventListener('click', () => loadDashboard().catch(() => {}));
+lockButton.addEventListener('click', lock);
+runButton.addEventListener('click', async () => {
+  if (!confirm('Start another sourcing run? This consumes scraper, Gemini, Keepa, and queue capacity.')) return;
+  runButton.disabled = true;
+  try {
+    const data = await api('/api/cron');
+    showNotice(`Run queued: ${data.candidates} candidates, about ${data.estimatedAnalysisMinutes} minutes.`);
+    setTimeout(() => loadDashboard().catch(() => {}), 1200);
+  } catch (error) { showNotice(error.message, true); }
+  finally { runButton.disabled = false; }
+});
+
+if (secret) loadDashboard().then(() => { refreshTimer = setInterval(loadDashboard, 30000); }).catch(lock);
+else lock();
