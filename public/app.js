@@ -1,7 +1,9 @@
 const $ = (selector) => document.querySelector(selector);
 const loginView = $('#loginView');
 const dashboardView = $('#dashboardView');
-const loginForm = $('#loginForm');
+const adminLoginForm = $('#adminLoginForm');
+const studentLoginForm = $('#studentLoginForm');
+const studentView = $('#studentView');
 const secretInput = $('#secretInput');
 const loginError = $('#loginError');
 const refreshButton = $('#refreshButton');
@@ -89,12 +91,88 @@ function lock() {
   sessionStorage.removeItem('amzai_admin_secret');
   clearInterval(refreshTimer);
   dashboardView.classList.add('hidden');
+  studentView.classList.add('hidden');
   loginView.classList.remove('hidden');
   lockButton.classList.add('hidden');
   secretInput.value = '';
 }
 
-loginForm.addEventListener('submit', async (event) => {
+const selectLoginTab = (studentMode) => {
+  $('#studentTab').classList.toggle('active', studentMode);
+  $('#adminTab').classList.toggle('active', !studentMode);
+  studentLoginForm.classList.toggle('hidden', !studentMode);
+  adminLoginForm.classList.toggle('hidden', studentMode);
+};
+
+async function loadStudentPortal() {
+  const response = await fetch('/api/student');
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Please sign in');
+  const student = data.student;
+  loginView.classList.add('hidden');
+  dashboardView.classList.add('hidden');
+  studentView.classList.remove('hidden');
+  lockButton.classList.add('hidden');
+  $('#studentGreeting').textContent = `Welcome, ${student.name}.`;
+  $('#minRoiInput').value = student.minRoi;
+  $('#minSalesInput').value = student.minMonthlySales;
+  $('#maxCostInput').value = student.maxCost;
+  $('#excludedBrandsInput').value = (student.excludedBrands || []).join('\n');
+  $('#webhookStatus').textContent = student.webhookConfigured
+    ? '✓ Your private Discord destination is configured.'
+    : 'Your Discord destination is not configured yet. Contact the Syndicate team.';
+  $('#webhookStatus').classList.toggle('ready', student.webhookConfigured);
+  if (data.onboardingVideoUrl) {
+    $('#onboardingVideo').src = data.onboardingVideoUrl;
+    $('#onboardingVideo').classList.remove('hidden');
+    $('#videoPlaceholder').classList.add('hidden');
+  }
+}
+
+$('#studentTab').addEventListener('click', () => selectLoginTab(true));
+$('#adminTab').addEventListener('click', () => selectLoginTab(false));
+
+studentLoginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const errorElement = $('#studentLoginError');
+  errorElement.textContent = '';
+  try {
+    const response = await fetch('/api/auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: $('#usernameInput').value.trim(), password: $('#passwordInput').value }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Sign in failed');
+    await loadStudentPortal();
+  } catch (error) { errorElement.textContent = error.message; }
+});
+
+$('#preferencesForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const message = $('#preferencesMessage');
+  message.textContent = 'Saving…';
+  try {
+    const response = await fetch('/api/student', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        minRoi: Number($('#minRoiInput').value),
+        minMonthlySales: Number($('#minSalesInput').value),
+        maxCost: Number($('#maxCostInput').value),
+        excludedBrands: $('#excludedBrandsInput').value,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Could not save preferences');
+    message.textContent = 'Preferences saved.';
+  } catch (error) { message.textContent = error.message; }
+});
+
+$('#studentLogoutButton').addEventListener('click', async () => {
+  await fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
+  studentView.classList.add('hidden'); loginView.classList.remove('hidden'); selectLoginTab(true);
+});
+
+adminLoginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   secret = secretInput.value.trim();
   sessionStorage.setItem('amzai_admin_secret', secret);
@@ -115,4 +193,4 @@ runButton.addEventListener('click', async () => {
 });
 
 if (secret) loadDashboard().then(() => { refreshTimer = setInterval(loadDashboard, 30000); }).catch(lock);
-else lock();
+else loadStudentPortal().catch(() => { lock(); selectLoginTab(true); });

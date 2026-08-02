@@ -4,17 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#08111f">
-  <title>AMZ AI Command Center</title>
+  <title>Syndicate AI Command Center</title>
+  <link rel="icon" type="image/png" href="/assets/syndicate-ai-logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/portal.css">
 </head>
 <body>
   <div class="glow glow-one"></div><div class="glow glow-two"></div>
   <main class="shell">
     <header class="topbar">
-      <a class="brand" href="/"><span class="brand-mark">A</span><span>AMZ AI</span></a>
+      <a class="brand" href="/"><img class="brand-logo" src="/assets/syndicate-ai-logo.png" alt=""><span>Syndicate AI</span></a>
       <div class="top-actions">
         <span class="live-pill"><i></i> Production</span>
         <button class="ghost-button" id="lockButton" type="button">Lock</button>
@@ -22,10 +24,22 @@
     </header>
 
     <section class="login-card" id="loginView">
-      <div class="eyebrow">Private operations portal</div>
+      <div class="eyebrow">Private member portal</div>
       <h1>Find better inventory.<br><span>Before the market does.</span></h1>
-      <p>Unlock the sourcing command center with your admin secret. It stays in this browser tab and is never saved by the portal.</p>
-      <form id="loginForm">
+      <p>Sign in to complete onboarding, manage your sourcing preferences, and receive private daily opportunities.</p>
+      <div class="login-tabs" role="tablist">
+        <button class="login-tab active" id="studentTab" type="button">Student login</button>
+        <button class="login-tab" id="adminTab" type="button">Admin</button>
+      </div>
+      <form id="studentLoginForm">
+        <div class="field-grid two-fields">
+          <label>Student username<input id="usernameInput" autocomplete="username" required></label>
+          <label>Password<input id="passwordInput" type="password" autocomplete="current-password" required></label>
+        </div>
+        <button class="primary-button full-button" type="submit">Continue to portal <span>→</span></button>
+        <p class="form-error" id="studentLoginError" role="alert"></p>
+      </form>
+      <form class="hidden" id="adminLoginForm">
         <label for="secretInput">Admin secret</label>
         <div class="secret-row">
           <input id="secretInput" type="password" autocomplete="current-password" placeholder="Enter CRON_SECRET" required>
@@ -35,11 +49,40 @@
       </form>
     </section>
 
+    <section class="dashboard hidden" id="studentView">
+      <div class="hero-row student-hero">
+        <div><div class="eyebrow">Member onboarding</div><h1 id="studentGreeting">Welcome to Syndicate AI.</h1><p>Set your buying criteria once. Your private Discord webhook is managed by the Syndicate team.</p></div>
+        <button class="ghost-button" id="studentLogoutButton" type="button">Sign out</button>
+      </div>
+      <section class="onboarding-grid">
+        <article class="panel video-panel">
+          <div class="video-placeholder" id="videoPlaceholder"><img src="/assets/syndicate-ai-logo.png" alt=""><span>Onboarding video coming soon</span></div>
+          <iframe class="hidden" id="onboardingVideo" title="Syndicate AI onboarding video" allowfullscreen></iframe>
+          <div class="onboarding-copy"><span class="eyebrow">Start here</span><h2>How your daily sourcing works</h2><p>Syndicate AI centrally manages Walmart scraping, Gemini identification, and Keepa qualification. You do not need to purchase or paste those API keys.</p></div>
+        </article>
+        <article class="panel preferences-panel">
+          <span class="eyebrow">Your criteria</span><h2>Personalize your deal feed</h2>
+          <form id="preferencesForm">
+            <div class="field-grid two-fields">
+              <label>Minimum ROI (%)<input id="minRoiInput" type="number" min="0" max="1000" step="1" required></label>
+              <label>Minimum monthly sales<input id="minSalesInput" type="number" min="0" step="1" required></label>
+            </div>
+            <label>Maximum Walmart cost ($)<input id="maxCostInput" type="number" min="0.01" step="0.01" required></label>
+            <label>Excluded brands<textarea id="excludedBrandsInput" rows="3" placeholder="One per line or comma-separated"></textarea></label>
+            <div class="managed-keys"><strong>Platform-managed services</strong><span>Walmart scraper</span><span>Gemini AI</span><span>Keepa</span></div>
+            <div class="webhook-status" id="webhookStatus"></div>
+            <button class="primary-button full-button" type="submit">Save preferences</button>
+            <p class="form-error" id="preferencesMessage" role="status"></p>
+          </form>
+        </article>
+      </section>
+    </section>
+
     <section class="dashboard hidden" id="dashboardView">
       <div class="hero-row">
         <div>
           <div class="eyebrow">Sourcing operations</div>
-          <h1>Good morning, Bandit.</h1>
+          <h1>Syndicate command center.</h1>
           <p>One shared Walmart scan. Strictly unique opportunities. Delivered automatically.</p>
         </div>
         <div class="hero-actions">

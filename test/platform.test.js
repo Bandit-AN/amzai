@@ -11,9 +11,18 @@ const {
   calculateDeal,
   discordPayload,
   emptyDiscordPayload,
+  hashStudentPassword,
   keepaInitialDelaySeconds,
   normalizeWalmartPayload,
+  verifyStudentPassword,
 } = await import('../lib/platform.js');
+
+test('student passwords are hashed and verified without storing plaintext', async () => {
+  const encoded = await hashStudentPassword('safe-test-password', '00112233445566778899aabbccddeeff');
+  assert.doesNotMatch(encoded, /safe-test-password/);
+  assert.equal(await verifyStudentPassword('safe-test-password', encoded), true);
+  assert.equal(await verifyStudentPassword('wrong-password', encoded), false);
+});
 
 test('spaces one-token Keepa analysis jobs three minutes apart', () => {
   assert.equal(analysisDelaySeconds(0, 1, 3), 0);

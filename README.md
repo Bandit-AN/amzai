@@ -1,4 +1,4 @@
-# AMZ AI Multi-Tenant OA Prototype
+# Syndicate AI Multi-Tenant OA Prototype
 
 A queued Walmart-to-Amazon sourcing pipeline for 1–10 students. It targets up to 10 strictly unique candidate deals per student each morning; it never weakens filters or duplicates a deal to fill an undersupplied digest.
 
@@ -28,12 +28,26 @@ Create a table named `Students` with these exact fields:
 | `Email` | Email | Optional |
 | `Status` | Single select (`Active`, `Inactive`) | Yes |
 | `Discord Webhook URL` | URL | Yes |
+| `Username` | Single line text | Yes for portal login |
+| `Password Hash` | Long text | Yes for portal login; never store plaintext passwords |
+| `Onboarding Complete` | Checkbox | Optional |
 | `Minimum ROI` | Number | Optional; defaults to platform value |
 | `Minimum Monthly Sales` | Number | Optional; defaults to platform value |
 | `Maximum Cost` | Currency | Optional |
-| `Excluded Brands` | Long text or multiple select | Optional |
+| `Excluded Brands` | Long text | Optional |
 
-Create a scoped Airtable personal access token with `data.records:read` access to this base. The prototype reads at most 10 active students. Softr can edit this table, but never expose the full Discord webhook after it is saved; a production system should move webhooks into encrypted secret storage.
+Create a scoped Airtable personal access token with `data.records:read` and `data.records:write` access to this base. The portal writes only student sourcing preferences and onboarding status. Discord webhooks remain admin-managed and are never returned to the browser.
+
+Generate a student's password hash locally without placing the password in shell history:
+
+```bash
+read -s STUDENT_PASSWORD
+export STUDENT_PASSWORD
+npm run hash-password
+unset STUDENT_PASSWORD
+```
+
+Paste the resulting `pbkdf2$...` value into Airtable's `Password Hash` field. Store the student's chosen username in `Username`. Never place the plaintext password in Airtable.
 
 ## Services and environment
 
@@ -49,6 +63,8 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `PUBLIC_BASE_URL`: the production Vercel origin, without a trailing slash.
 - `CRON_SECRET`: Vercel sends this to the cron endpoint as a bearer token.
 - `WORKER_SECRET`: a separate random secret QStash forwards to internal endpoints.
+- `PORTAL_SESSION_SECRET`: a third random secret used only to sign 12-hour student login cookies.
+- `ONBOARDING_VIDEO_URL`: an embeddable HTTPS video URL; leave blank to show the branded placeholder.
 - `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
 - `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for search plus product details; defaults to `3`.
 
