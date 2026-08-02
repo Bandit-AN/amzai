@@ -24,14 +24,14 @@ test('student passwords are hashed and verified without storing plaintext', asyn
   assert.equal(await verifyStudentPassword('wrong-password', encoded), false);
 });
 
-test('spaces one-token Keepa analysis jobs three minutes apart', () => {
-  assert.equal(analysisDelaySeconds(0, 1, 3), 0);
-  assert.equal(analysisDelaySeconds(1, 1, 3), 180);
-  assert.equal(analysisDelaySeconds(2, 1, 3), 360);
-  assert.equal(analysisDelaySeconds(1, 20, 3), 9);
-  assert.equal(analysisDelaySeconds(1, 1, 3, 120), 300);
-  assert.equal(keepaInitialDelaySeconds(-45, 1, 3), 2880);
-  assert.equal(keepaInitialDelaySeconds(60, 1, 3), 0);
+test('spaces Keepa jobs for keyword search plus product details', () => {
+  assert.equal(analysisDelaySeconds(0, 1, 12), 0);
+  assert.equal(analysisDelaySeconds(1, 1, 12), 720);
+  assert.equal(analysisDelaySeconds(2, 1, 12), 1440);
+  assert.equal(analysisDelaySeconds(1, 20, 12), 36);
+  assert.equal(analysisDelaySeconds(1, 1, 12, 120), 840);
+  assert.equal(keepaInitialDelaySeconds(-9, 1, 12), 1260);
+  assert.equal(keepaInitialDelaySeconds(60, 1, 12), 0);
 });
 
 test('normalizes and deduplicates Walmart candidates by item ID', () => {

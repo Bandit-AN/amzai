@@ -43,14 +43,14 @@ function renderRuns(runs) {
     return;
   }
   const latest = runs[0];
-  $('#latestStatus').textContent = latest.status === 'finalized' ? 'Complete' : 'Analyzing';
+  $('#latestStatus').textContent = latest.status === 'finalized' ? 'Complete' : (latest.status === 'cancelled' ? 'Cancelled' : 'Analyzing');
   $('#latestDetail').textContent = `${latest.completedJobs}/${latest.totalJobs} jobs · ${latest.qualifiedDeals} qualified`;
   list.innerHTML = runs.map((run) => {
     const total = Math.max(1, Number(run.totalJobs || 0));
     const percent = Math.min(100, Math.round((Number(run.completedJobs || 0) / total) * 100));
     const deliveries = (run.delivery || []).filter((item) => item.delivered).length;
     return `<div class="run-card">
-      <div class="run-top"><div><div class="run-id">${escapeHtml(run.runId)}</div><span class="metric-detail">${formatDate(run.createdAt)}</span></div><span class="status ${run.status === 'finalized' ? 'finalized' : ''}">${escapeHtml(run.status)}</span></div>
+      <div class="run-top"><div><div class="run-id">${escapeHtml(run.runId)}</div><span class="metric-detail">${formatDate(run.createdAt)}</span></div><span class="status ${['finalized','cancelled'].includes(run.status) ? run.status : ''}">${escapeHtml(run.status)}</span></div>
       <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
       <div class="run-stats"><span><b>${run.completedJobs}/${run.totalJobs}</b> analyzed</span><span><b>${run.qualifiedDeals}</b> qualified</span><span><b>${run.analysisErrors}</b> errors</span><span><b>${deliveries}</b> delivered</span></div>
     </div>`;
