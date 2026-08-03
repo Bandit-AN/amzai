@@ -13,6 +13,7 @@ import {
   publishBatch,
   redis,
   requireEnvironment,
+  walmartUrlsForWindow,
 } from '../lib/platform.js';
 
 export default async function handler(request, response) {
@@ -44,9 +45,14 @@ export default async function handler(request, response) {
     const candidateLimit = Number.isInteger(requestedLimit)
       ? Math.max(1, Math.min(requestedLimit, config.maxCandidates))
       : config.maxCandidates;
+    const requestedWindow = Number.parseInt(request.query?.window, 10);
+    const sourceWindow = Number.isInteger(requestedWindow)
+      ? Math.max(0, requestedWindow)
+      : Math.floor(Date.now() / 86400000);
+    const sourceUrls = walmartUrlsForWindow(sourceWindow);
     const [students, scrapedCandidates] = await Promise.all([
       fetchActiveStudents(),
-      fetchWalmartCatalog(candidateLimit),
+      fetchWalmartCatalog(candidateLimit, sourceUrls),
     ]);
     if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
     if (scrapedCandidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
@@ -81,6 +87,9 @@ export default async function handler(request, response) {
       candidateCount: candidates.length,
       scrapedCandidateCount: scrapedCandidates.length,
       skippedRecentlyAnalyzed,
+      sourceWindow,
+      sourcePages: sourceUrls.length,
+      staged: true,
       totalChunks: chunks.length,
       targetDealsPerStudent: config.targetDealsPerStudent,
       keepaTokensAtQueueTime: keepaStatus.tokensLeft,
@@ -95,7 +104,8 @@ export default async function handler(request, response) {
     await redis.lpush('runs:recent', runId);
     await redis.ltrim('runs:recent', 0, 19);
 
-    await publishBatch(chunks.map((_, chunkIndex) => ({
+    const initiallyQueuedChunks = Math.min(chunks.length, config.analysisBatchSize);
+    await publishBatch(chunks.slice(0, initiallyQueuedChunks).map((_, chunkIndex) => ({
       url: `${config.publicBaseUrl}/api/analyze`,
       body: { runId, chunkIndex },
       deduplicationId: `${runId}-analyze-${chunkIndex}`,
@@ -116,6 +126,9 @@ export default async function handler(request, response) {
       skippedRecentlyAnalyzed,
       candidateLimit,
       analysisJobs: chunks.length,
+      initiallyQueuedJobs: initiallyQueuedChunks,
+      sourceWindow,
+      sourcePages: sourceUrls.length,
       initialDelayMinutes: Math.ceil(initialDelaySeconds / 60),
       estimatedAnalysisMinutes: Math.ceil(analysisDelaySeconds(
         Math.max(0, chunks.length - 1),

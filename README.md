@@ -70,6 +70,8 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `WALMART_RENDER_JS=true` with `WALMART_PREMIUM_PROXY=false`: uses the verified 5-credit page request and automatically retries once with a premium US proxy only for blocking or temporary upstream failures.
 - `STUDENT_CACHE_SECONDS`: Redis cache lifetime for the active Airtable roster; defaults to 15 minutes.
 - `PRODUCT_COOLDOWN_SECONDS`: changed-product and delivered-ASIN cooldown; defaults to seven days.
+- `WALMART_PAGES_PER_RUN` and `WALMART_MAX_PAGE`: rotate a fixed-size page window through the Walmart catalog without increasing daily scraper requests.
+- `ANALYSIS_BATCH_SIZE`: number of ranked candidates released per Keepa wave; defaults to 50.
 
 `WALMART_TARGET_URLS` may contain multiple comma- or newline-separated category/page URLs. Results are merged and deduplicated by Walmart item ID before the run limit is applied.
 
@@ -86,6 +88,8 @@ The platform screens for ROI ≥ 50% and estimated monthly sales ≥ 200 by defa
 Before calculating ROI, explicit count, pack, weight, and volume values in the Walmart and Amazon titles must agree. Known mismatches such as Walmart `32 Count` versus Amazon `96 ct` are rejected. Products whose titles omit comparable quantity information still require manual listing verification.
 
 Completed Walmart item/title/price combinations are cached for seven days, so unchanged listings do not repeatedly consume Gemini and Keepa. A price or title change produces a new fingerprint and is eligible immediately. Successfully delivered Amazon ASINs are also suppressed for seven days across runs.
+
+Candidates are ranked before Keepa using available clearance discount, UPC/GTIN presence, explicit quantity information, practical OA price bands, and category heuristics. Variation-heavy, oversized, and perishable listings are deprioritized. Keepa work is released in waves; if strict allocation can already fill every active student's target, later waves are not published.
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 

@@ -4,12 +4,14 @@ import test from 'node:test';
 process.env.GEMINI_KEY = 'test-key';
 process.env.MINIMUM_ROI = '50';
 process.env.MINIMUM_MONTHLY_SALES = '200';
+process.env.WALMART_TARGET_URLS = 'https://www.walmart.com/shop/savings?facet=retailer_type%3AWalmart';
 globalThis.File ??= class File {};
 
 const {
   analysisDelaySeconds,
   allocateDeals,
   candidateFingerprint,
+  candidatePriority,
   calculateDeal,
   discordPayload,
   emptyDiscordPayload,
@@ -20,6 +22,7 @@ const {
   listingQuantitiesCompatible,
   normalizeWalmartPayload,
   verifyStudentPassword,
+  walmartUrlsForWindow,
 } = await import('../lib/platform.js');
 
 test('student passwords are hashed and verified without storing plaintext', async () => {
@@ -47,6 +50,33 @@ test('normalizes and deduplicates Walmart candidates by item ID', () => {
   assert.equal(products.length, 1);
   assert.equal(products[0].itemId, '12345');
   assert.equal(products[0].currentPrice, 9.99);
+});
+
+test('preserves Walmart original price and UPC when present', () => {
+  const [product] = normalizeWalmartPayload({ items: [{
+    name: 'Acme Widget 12 Count', price: '$10.00', originalPrice: '$20.00',
+    upc: '001234567890', url: '/ip/acme-widget/24680',
+  }] });
+  assert.equal(product.originalPrice, 20);
+  assert.equal(product.upc, '001234567890');
+});
+
+test('rotates Walmart pagination windows without changing request volume', () => {
+  const first = walmartUrlsForWindow(0);
+  const second = walmartUrlsForWindow(1);
+  assert.equal(first.length, 6);
+  assert.equal(first[0].includes('page='), false);
+  assert.match(first[5], /page=6/);
+  assert.match(second[0], /page=7/);
+  assert.match(second[5], /page=12/);
+});
+
+test('prioritizes discounted standardized products over variation-heavy products', () => {
+  const discounted = {
+    title: 'Acme Vitamin Tablets 60 Count', currentPrice: 10, originalPrice: 30, upc: '001234567890',
+  };
+  const variationHeavy = { title: 'Acme Women Shoe Size 8', currentPrice: 20 };
+  assert.ok(candidatePriority(discounted) > candidatePriority(variationHeavy));
 });
 
 test('does not concatenate repeated Walmart price text', () => {

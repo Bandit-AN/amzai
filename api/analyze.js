@@ -1,15 +1,72 @@
 import {
+  allocateDeals,
+  analysisDelaySeconds,
   analyzeCandidate,
   config,
   isRetryableProviderError,
   jsonResponse,
   markCandidatesAnalyzed,
   publishMessage,
+  publishBatch,
   readJsonBody,
   redis,
   requireEnvironment,
   workerAuthorized,
 } from '../lib/platform.js';
+
+const finalizeJob = (runId) => ({
+  url: `${config.publicBaseUrl}/api/finalize`,
+  body: { runId },
+  deduplicationId: `${runId}-finalize`,
+});
+
+async function advanceRun(runId, completedChunks, meta) {
+  if (!meta || !completedChunks) return;
+  if (completedChunks >= meta.totalChunks) {
+    await publishMessage(finalizeJob(runId));
+    return;
+  }
+  if (!meta.staged) return;
+  if (completedChunks % config.analysisBatchSize !== 0) return;
+
+  const waveLockKey = `run:${runId}:wave:${completedChunks}`;
+  const waveLocked = await redis.set(waveLockKey, true, { nx: true, ex: 300 });
+  if (!waveLocked) return;
+  try {
+    const qualifiedDeals = await redis.lrange(`run:${runId}:qualified`, 0, -1);
+    const previousDelivery = await redis.mget(
+      qualifiedDeals.map((deal) => `catalog:delivered-asin:${deal.asin}`),
+    );
+    const freshDeals = qualifiedDeals.filter((_, index) => !previousDelivery[index]);
+    const assignments = allocateDeals(freshDeals, meta.students, meta.targetDealsPerStudent, runId);
+    const allSlotsFilled = meta.students.every(
+      (student) => assignments[student.id]?.length >= meta.targetDealsPerStudent,
+    );
+    if (allSlotsFilled) {
+      const stoppedMeta = { ...meta, totalChunks: completedChunks, stoppedEarly: true };
+      await redis.set(`run:${runId}:meta`, stoppedMeta, { ex: config.runTtlSeconds });
+      await publishMessage(finalizeJob(runId));
+      return;
+    }
+
+    const nextEnd = Math.min(completedChunks + config.analysisBatchSize, meta.totalChunks);
+    await publishBatch(Array.from({ length: nextEnd - completedChunks }, (_, localIndex) => {
+      const nextChunkIndex = completedChunks + localIndex;
+      return {
+        url: `${config.publicBaseUrl}/api/analyze`,
+        body: { runId, chunkIndex: nextChunkIndex },
+        deduplicationId: `${runId}-analyze-${nextChunkIndex}`,
+        delaySeconds: analysisDelaySeconds(
+          localIndex + 1,
+          meta.keepaTokensPerMinute,
+          config.keepaTokensPerCandidate,
+        ),
+      };
+    }));
+  } finally {
+    await redis.del(waveLockKey).catch(() => {});
+  }
+}
 
 export default async function handler(request, response) {
   if (request.method !== 'POST') return jsonResponse(response, 405, { error: 'Method not allowed' });
@@ -23,6 +80,11 @@ export default async function handler(request, response) {
 
     const completionKey = `run:${runId}:chunk:${chunkIndex}:complete`;
     if (await redis.get(completionKey)) {
+      const [completedChunks, meta] = await redis.mget([
+        `run:${runId}:completedChunks`,
+        `run:${runId}:meta`,
+      ]);
+      await advanceRun(runId, Number(completedChunks || 0), meta);
       return jsonResponse(response, 200, { ok: true, duplicate: true });
     }
     const candidates = await redis.get(`run:${runId}:chunk:${chunkIndex}`);
@@ -51,13 +113,7 @@ export default async function handler(request, response) {
     if (firstCompletion) {
       completedChunks = await redis.incr(`run:${runId}:completedChunks`);
       const meta = await redis.get(`run:${runId}:meta`);
-      if (completedChunks === meta?.totalChunks) {
-        await publishMessage({
-          url: `${config.publicBaseUrl}/api/finalize`,
-          body: { runId },
-          deduplicationId: `${runId}-finalize`,
-        });
-      }
+      await advanceRun(runId, completedChunks, meta);
     }
     return jsonResponse(response, 200, { ok: true, runId, chunkIndex, qualified, completedChunks, errors });
   } catch (error) {
