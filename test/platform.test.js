@@ -97,19 +97,65 @@ test('does not concatenate repeated Walmart price text', () => {
 });
 
 test('rejects Amazon listings with a different item count', () => {
-  assert.deepEqual(extractListingQuantities('Starface Pimple Patches - 32 Count').count, [32]);
+  assert.deepEqual(extractListingQuantities('Starface Pimple Patches - 32 Count').outer_count, [32]);
   const result = listingQuantitiesCompatible(
     'Starface Hydro-Star Pimple Patches - 32 Count',
     'Starface Hydro-Star Party Pack Pimple Patch, 96 ct',
   );
   assert.equal(result.compatible, false);
-  assert.equal(result.category, 'count');
+  assert.equal(result.category, 'outer_count');
 });
 
 test('accepts equivalent units and rejects different package sizes', () => {
   assert.equal(listingQuantitiesCompatible('Dog Food 2 lb Bag', 'Dog Food, 32 oz').compatible, true);
   assert.equal(listingQuantitiesCompatible('Shampoo 12 fl oz', 'Shampoo 24 fluid ounces').compatible, false);
   assert.equal(listingQuantitiesCompatible('Markers 3 Pack', 'Markers Pack of 3').compatible, true);
+});
+
+test('rejects mismatched outer packs even when inner sheet counts match', () => {
+  assert.equal(listingQuantitiesCompatible(
+    'Pen+Gear 3-Inch by 3-Inch Yellow Sticky Notes, 100 Sheets',
+    'Amazon Basics Sticky Notes, Yellow, 18-Pack, 100 Sheets per Pad',
+  ).compatible, false);
+  assert.equal(listingQuantitiesCompatible(
+    'Zbar Iced Oatmeal Cookie Snack Bars, 6ct',
+    'Zbar Iced Oatmeal Cookie Snacks (24 Pack)',
+  ).compatible, false);
+  assert.equal(listingQuantitiesCompatible(
+    'Better Office Products Blue Paper Folder',
+    'Better Office Products Blue Paper Folders, 50 Pack',
+  ).compatible, false);
+});
+
+test('rejects mismatched component quantities', () => {
+  const result = listingQuantitiesCompatible(
+    'Zevo Compact Flying Insect Trap - 1 Plug In Device & 1 Cartridge',
+    'Zevo Flying Insect Trap, 2 Devices and 4 Cartridges',
+  );
+  assert.equal(result.compatible, false);
+  assert.equal(['device', 'cartridge'].includes(result.category), true);
+});
+
+test('rejects an Amazon count absent from a Walmart single-item listing', () => {
+  assert.equal(listingQuantitiesCompatible(
+    'Purina Busy Bone Dog Treats for Small Dogs, 6.5 oz',
+    'Purina Busy Bone Dog Chew Treats, 60 ct Pouch',
+  ).compatible, false);
+});
+
+test('uses Keepa numberOfItems when the Amazon title omits pack size', () => {
+  assert.equal(listingQuantitiesCompatible(
+    'Better Office Products Blue Paper Folder',
+    'Better Office Products Blue Paper Folders',
+    50,
+  ).compatible, false);
+});
+
+test('treats explicit pack size as outer quantity instead of inner count', () => {
+  assert.deepEqual(
+    extractListingQuantities('Sticky Notes, 18 Pack, 100 Count per Pad').outer_count,
+    [18],
+  );
 });
 
 test('does not reject listings when neither title provides comparable quantities', () => {

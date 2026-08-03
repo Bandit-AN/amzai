@@ -16,6 +16,9 @@ export default async function handler(request, response) {
   try {
     ({ runId } = await readJsonBody(request));
     if (!runId) throw new Error('runId is required');
+    if (await redis.get(`run:${runId}:cancelled`)) {
+      return jsonResponse(response, 200, { ok: true, cancelled: true });
+    }
     if (await redis.get(`run:${runId}:finalized`)) {
       return jsonResponse(response, 200, { ok: true, duplicate: true });
     }

@@ -80,6 +80,9 @@ export default async function handler(request, response) {
     if (!runId || !Number.isInteger(chunkIndex)) throw new Error('runId and integer chunkIndex are required');
 
     const completionKey = `run:${runId}:chunk:${chunkIndex}:complete`;
+    if (await redis.get(`run:${runId}:cancelled`)) {
+      return jsonResponse(response, 200, { ok: true, cancelled: true });
+    }
     if (await redis.get(completionKey)) {
       const [completedChunks, meta] = await redis.mget([
         `run:${runId}:completedChunks`,
