@@ -2,6 +2,7 @@ import {
   allocateDeals,
   analysisDelaySeconds,
   analyzeCandidate,
+  candidateFingerprint,
   config,
   isRetryableProviderError,
   jsonResponse,
@@ -91,8 +92,14 @@ export default async function handler(request, response) {
     if (!Array.isArray(candidates)) throw new Error('Analysis chunk was not found or expired');
 
     let qualified = 0;
+    let skippedRecentlyAnalyzed = 0;
+    const analyzedCandidates = [];
     const errors = [];
     for (const candidate of candidates) {
+      if (await redis.get(`catalog:seen:${candidateFingerprint(candidate)}`)) {
+        skippedRecentlyAnalyzed += 1;
+        continue;
+      }
       try {
         const deal = await analyzeCandidate(candidate);
         if (deal) {
@@ -105,8 +112,12 @@ export default async function handler(request, response) {
         errors.push(detail);
         await redis.rpush(`run:${runId}:errors`, detail);
       }
+      analyzedCandidates.push(candidate);
     }
-    await markCandidatesAnalyzed(candidates);
+    await markCandidatesAnalyzed(analyzedCandidates);
+    if (skippedRecentlyAnalyzed) {
+      await redis.incr(`run:${runId}:skippedRecentlyAnalyzed`);
+    }
 
     const firstCompletion = await redis.set(completionKey, true, { nx: true, ex: config.runTtlSeconds });
     let completedChunks = null;
@@ -115,7 +126,15 @@ export default async function handler(request, response) {
       const meta = await redis.get(`run:${runId}:meta`);
       await advanceRun(runId, completedChunks, meta);
     }
-    return jsonResponse(response, 200, { ok: true, runId, chunkIndex, qualified, completedChunks, errors });
+    return jsonResponse(response, 200, {
+      ok: true,
+      runId,
+      chunkIndex,
+      qualified,
+      skippedRecentlyAnalyzed,
+      completedChunks,
+      errors,
+    });
   } catch (error) {
     console.error(JSON.stringify({ event: 'analysis_failed', runId, chunkIndex, message: error.message }));
     return jsonResponse(response, 500, { ok: false, error: error.message });

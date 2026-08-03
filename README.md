@@ -69,7 +69,7 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for keyword search plus product details; defaults to `12`.
 - `WALMART_RENDER_JS=true` with `WALMART_PREMIUM_PROXY=false`: uses the verified 5-credit page request and automatically retries once with a premium US proxy only for blocking or temporary upstream failures.
 - `STUDENT_CACHE_SECONDS`: Redis cache lifetime for the active Airtable roster; defaults to 15 minutes.
-- `PRODUCT_COOLDOWN_SECONDS`: changed-product and delivered-ASIN cooldown; defaults to seven days.
+- `PRODUCT_COOLDOWN_SECONDS`: unchanged-product and delivered-ASIN cooldown; defaults to 30 days.
 - `WALMART_PAGES_PER_RUN` and `WALMART_MAX_PAGE`: rotate a fixed-size page window through the Walmart catalog without increasing daily scraper requests.
 - `ANALYSIS_BATCH_SIZE`: number of ranked candidates released per Keepa wave; defaults to 50.
 
