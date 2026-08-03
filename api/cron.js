@@ -6,6 +6,7 @@ import {
   fetchActiveStudents,
   fetchKeepaTokenStatus,
   fetchWalmartCatalog,
+  filterRecentlyAnalyzedCandidates,
   getRunSummary,
   jsonResponse,
   keepaInitialDelaySeconds,
@@ -43,12 +44,25 @@ export default async function handler(request, response) {
     const candidateLimit = Number.isInteger(requestedLimit)
       ? Math.max(1, Math.min(requestedLimit, config.maxCandidates))
       : config.maxCandidates;
-    const [students, candidates] = await Promise.all([
+    const [students, scrapedCandidates] = await Promise.all([
       fetchActiveStudents(),
       fetchWalmartCatalog(candidateLimit),
     ]);
     if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
-    if (candidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
+    if (scrapedCandidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
+    const candidates = request.query?.refresh === 'true'
+      ? scrapedCandidates
+      : await filterRecentlyAnalyzedCandidates(scrapedCandidates);
+    const skippedRecentlyAnalyzed = scrapedCandidates.length - candidates.length;
+    if (candidates.length === 0) {
+      return jsonResponse(response, 200, {
+        ok: true,
+        skipped: true,
+        reason: 'No new or price-changed Walmart candidates were found',
+        scrapedCandidates: scrapedCandidates.length,
+        skippedRecentlyAnalyzed,
+      });
+    }
 
     const runId = `${new Date().toISOString().slice(0, 10)}-${randomUUID()}`;
     const chunks = candidates.map((candidate) => [candidate]);
@@ -65,6 +79,8 @@ export default async function handler(request, response) {
       status: 'analyzing',
       students,
       candidateCount: candidates.length,
+      scrapedCandidateCount: scrapedCandidates.length,
+      skippedRecentlyAnalyzed,
       totalChunks: chunks.length,
       targetDealsPerStudent: config.targetDealsPerStudent,
       keepaTokensAtQueueTime: keepaStatus.tokensLeft,
@@ -96,6 +112,8 @@ export default async function handler(request, response) {
       runId,
       students: students.length,
       candidates: candidates.length,
+      scrapedCandidates: scrapedCandidates.length,
+      skippedRecentlyAnalyzed,
       candidateLimit,
       analysisJobs: chunks.length,
       initialDelayMinutes: Math.ceil(initialDelaySeconds / 60),

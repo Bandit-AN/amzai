@@ -1,7 +1,9 @@
 import {
   analyzeCandidate,
   config,
+  isRetryableProviderError,
   jsonResponse,
+  markCandidatesAnalyzed,
   publishMessage,
   readJsonBody,
   redis,
@@ -36,11 +38,13 @@ export default async function handler(request, response) {
           qualified += 1;
         }
       } catch (error) {
+        if (isRetryableProviderError(error)) throw error;
         const detail = { chunkIndex, title: candidate.title, message: error.message };
         errors.push(detail);
         await redis.rpush(`run:${runId}:errors`, detail);
       }
     }
+    await markCandidatesAnalyzed(candidates);
 
     const firstCompletion = await redis.set(completionKey, true, { nx: true, ex: config.runTtlSeconds });
     let completedChunks = null;

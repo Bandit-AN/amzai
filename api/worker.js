@@ -38,7 +38,14 @@ export default async function handler(request, response) {
     await axios.post(student.discordWebhookUrl, payload, {
       timeout: config.requestTimeoutMs,
     });
-    await redis.set(`run:${runId}:delivered:${studentId}`, true, { ex: config.runTtlSeconds });
+    await Promise.all([
+      redis.set(`run:${runId}:delivered:${studentId}`, true, { ex: config.runTtlSeconds }),
+      ...deals.map((deal) => redis.set(
+        `catalog:delivered-asin:${deal.asin}`,
+        true,
+        { ex: config.productCooldownSeconds },
+      )),
+    ]);
     await redis.del(lockKey());
     return jsonResponse(response, 200, { ok: true, runId, studentId, delivered: deals.length });
   } catch (error) {

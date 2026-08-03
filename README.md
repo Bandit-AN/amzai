@@ -67,6 +67,9 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `ONBOARDING_VIDEO_URL`: an embeddable HTTPS video URL; leave blank to show the branded placeholder.
 - `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
 - `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for keyword search plus product details; defaults to `12`.
+- `WALMART_RENDER_JS=true` with `WALMART_PREMIUM_PROXY=false`: uses the verified 5-credit page request and automatically retries once with a premium US proxy only for blocking or temporary upstream failures.
+- `STUDENT_CACHE_SECONDS`: Redis cache lifetime for the active Airtable roster; defaults to 15 minutes.
+- `PRODUCT_COOLDOWN_SECONDS`: changed-product and delivered-ASIN cooldown; defaults to seven days.
 
 `WALMART_TARGET_URLS` may contain multiple comma- or newline-separated category/page URLs. Results are merged and deduplicated by Walmart item ID before the run limit is applied.
 
@@ -81,6 +84,8 @@ openssl rand -hex 32
 The platform screens for ROI ≥ 50% and estimated monthly sales ≥ 200 by default. Estimated profit subtracts Walmart cost, Keepa's available FBA pick/pack fee, referral percentage, and `PER_ITEM_FEE_BUFFER`. These are estimates, not purchase advice.
 
 Before calculating ROI, explicit count, pack, weight, and volume values in the Walmart and Amazon titles must agree. Known mismatches such as Walmart `32 Count` versus Amazon `96 ct` are rejected. Products whose titles omit comparable quantity information still require manual listing verification.
+
+Completed Walmart item/title/price combinations are cached for seven days, so unchanged listings do not repeatedly consume Gemini and Keepa. A price or title change produces a new fingerprint and is eligible immediately. Successfully delivered Amazon ASINs are also suppressed for seven days across runs.
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 
@@ -121,4 +126,6 @@ If a manual or scheduled sourcing run is still analyzing, a new cron invocation 
 
 ## Scale expectations
 
-Ten students receiving ten strictly unique deals requires 100 qualified products. At a 1% qualification rate, that implies roughly 10,000 raw candidates; at 2%, roughly 5,000. Start with `MAX_CANDIDATES_PER_RUN=1000`, measure every stage, then increase source coverage and token budgets based on observed yield. A paid student product is commercial; treat free service tiers as prototype allowances rather than a permanent cost model.
+Ten students receiving ten strictly unique deals requires 100 qualified products. At a 1% qualification rate, that implies roughly 10,000 raw candidates; at 2%, roughly 5,000. Measure every stage before increasing source coverage and token budgets. A paid student product is commercial; treat free service tiers as prototype allowances rather than a permanent cost model.
+
+The sustainable prototype configuration uses six Walmart pages once daily and a 300-candidate hard cap. At five ScrapingBee credits per standard JavaScript-rendered page, that is about 900 credits per 30-day month. The hard cap leaves substantial room under QStash's 1,000-message daily free allowance for finalization, Discord delivery, and retries. Do not increase the page count or daily frequency without reviewing current ScrapingBee, QStash, Redis, Gemini, Keepa, and Vercel usage dashboards.

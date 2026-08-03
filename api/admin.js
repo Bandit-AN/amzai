@@ -1,4 +1,5 @@
 import {
+  cachedValue,
   config,
   fetchActiveStudents,
   fetchKeepaTokenStatus,
@@ -14,8 +15,8 @@ export default async function handler(request, response) {
   }
   try {
     const [runIds, keepa, students] = await Promise.all([
-      redis.lrange('runs:recent', 0, 19),
-      fetchKeepaTokenStatus(),
+      redis.lrange('runs:recent', 0, 4),
+      cachedValue('cache:keepa:status', 60, fetchKeepaTokenStatus),
       fetchActiveStudents(),
     ]);
     const runs = (await Promise.all(runIds.map((runId) => getRunSummary(runId)))).filter(Boolean);

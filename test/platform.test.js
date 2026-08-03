@@ -9,11 +9,13 @@ globalThis.File ??= class File {};
 const {
   analysisDelaySeconds,
   allocateDeals,
+  candidateFingerprint,
   calculateDeal,
   discordPayload,
   emptyDiscordPayload,
   extractListingQuantities,
   hashStudentPassword,
+  isRetryableProviderError,
   keepaInitialDelaySeconds,
   listingQuantitiesCompatible,
   normalizeWalmartPayload,
@@ -82,6 +84,18 @@ test('accepts equivalent units and rejects different package sizes', () => {
 
 test('does not reject listings when neither title provides comparable quantities', () => {
   assert.equal(listingQuantitiesCompatible('Acme Blue Widget', 'Acme Widget, Blue').compatible, true);
+});
+
+test('candidate cooldown fingerprint changes when the Walmart price changes', () => {
+  const candidate = { itemId: '123', title: 'Acme Widget', currentPrice: 10 };
+  assert.equal(candidateFingerprint(candidate), candidateFingerprint({ ...candidate }));
+  assert.notEqual(candidateFingerprint(candidate), candidateFingerprint({ ...candidate, currentPrice: 9 }));
+});
+
+test('classifies provider throttling and temporary failures as retryable', () => {
+  assert.equal(isRetryableProviderError({ response: { status: 429 } }), true);
+  assert.equal(isRetryableProviderError({ response: { status: 503 } }), true);
+  assert.equal(isRetryableProviderError({ response: { status: 400 } }), false);
 });
 
 test('calculates estimated profit and flags policy status as unverified', () => {

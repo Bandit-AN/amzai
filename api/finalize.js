@@ -26,7 +26,9 @@ export default async function handler(request, response) {
     if (!meta) throw new Error('Run metadata was not found or expired');
     const rawDeals = await redis.lrange(`run:${runId}:qualified`, 0, -1);
     const analysisErrors = await redis.lrange(`run:${runId}:errors`, 0, -1);
-    const assignments = allocateDeals(rawDeals, meta.students, meta.targetDealsPerStudent, runId);
+    const previousDelivery = await redis.mget(rawDeals.map((deal) => `catalog:delivered-asin:${deal.asin}`));
+    const freshDeals = rawDeals.filter((_, index) => !previousDelivery[index]);
+    const assignments = allocateDeals(freshDeals, meta.students, meta.targetDealsPerStudent, runId);
     const deliveryJobs = [];
     for (const [studentId, deals] of Object.entries(assignments)) {
       await redis.set(`run:${runId}:assignment:${studentId}`, deals, { ex: config.runTtlSeconds });
@@ -44,6 +46,7 @@ export default async function handler(request, response) {
       ok: true,
       runId,
       qualified: rawDeals.length,
+      suppressedPreviouslyDelivered: rawDeals.length - freshDeals.length,
       assigned,
       studentsReceivingDeals: deliveryJobs.length,
       analysisErrors: analysisErrors.length,

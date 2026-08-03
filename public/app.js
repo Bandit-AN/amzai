@@ -176,7 +176,7 @@ adminLoginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   secret = secretInput.value.trim();
   sessionStorage.setItem('amzai_admin_secret', secret);
-  try { await loadDashboard(); refreshTimer = setInterval(loadDashboard, 30000); }
+  try { await loadDashboard(); refreshTimer = setInterval(loadDashboard, 120000); }
   catch { sessionStorage.removeItem('amzai_admin_secret'); }
 });
 refreshButton.addEventListener('click', () => loadDashboard().catch(() => {}));
