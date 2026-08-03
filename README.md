@@ -68,6 +68,8 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
 - `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for keyword search plus product details; defaults to `12`.
 
+`WALMART_TARGET_URLS` may contain multiple comma- or newline-separated category/page URLs. Results are merged and deduplicated by Walmart item ID before the run limit is applied.
+
 Generate secrets locally:
 
 ```bash
@@ -77,6 +79,8 @@ openssl rand -hex 32
 ## Qualification and allocation
 
 The platform screens for ROI ≥ 50% and estimated monthly sales ≥ 200 by default. Estimated profit subtracts Walmart cost, Keepa's available FBA pick/pack fee, referral percentage, and `PER_ITEM_FEE_BUFFER`. These are estimates, not purchase advice.
+
+Before calculating ROI, explicit count, pack, weight, and volume values in the Walmart and Amazon titles must agree. Known mismatches such as Walmart `32 Count` versus Amazon `96 ct` are rejected. Products whose titles omit comparable quantity information still require manual listing verification.
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 
