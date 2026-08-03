@@ -12,8 +12,10 @@ const {
   calculateDeal,
   discordPayload,
   emptyDiscordPayload,
+  extractListingQuantities,
   hashStudentPassword,
   keepaInitialDelaySeconds,
+  listingQuantitiesCompatible,
   normalizeWalmartPayload,
   verifyStudentPassword,
 } = await import('../lib/platform.js');
@@ -60,6 +62,26 @@ test('does not concatenate repeated Walmart price text', () => {
   ] });
   assert.equal(products[0].currentPrice, 19.96);
   assert.equal(products[1].currentPrice, 1299.99);
+});
+
+test('rejects Amazon listings with a different item count', () => {
+  assert.deepEqual(extractListingQuantities('Starface Pimple Patches - 32 Count').count, [32]);
+  const result = listingQuantitiesCompatible(
+    'Starface Hydro-Star Pimple Patches - 32 Count',
+    'Starface Hydro-Star Party Pack Pimple Patch, 96 ct',
+  );
+  assert.equal(result.compatible, false);
+  assert.equal(result.category, 'count');
+});
+
+test('accepts equivalent units and rejects different package sizes', () => {
+  assert.equal(listingQuantitiesCompatible('Dog Food 2 lb Bag', 'Dog Food, 32 oz').compatible, true);
+  assert.equal(listingQuantitiesCompatible('Shampoo 12 fl oz', 'Shampoo 24 fluid ounces').compatible, false);
+  assert.equal(listingQuantitiesCompatible('Markers 3 Pack', 'Markers Pack of 3').compatible, true);
+});
+
+test('does not reject listings when neither title provides comparable quantities', () => {
+  assert.equal(listingQuantitiesCompatible('Acme Blue Widget', 'Acme Widget, Blue').compatible, true);
 });
 
 test('calculates estimated profit and flags policy status as unverified', () => {
