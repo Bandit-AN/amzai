@@ -17,10 +17,12 @@ const {
   emptyDiscordPayload,
   extractListingQuantities,
   hashStudentPassword,
+  isExcludedProductType,
   isRetryableProviderError,
   keepaInitialDelaySeconds,
   listingQuantitiesCompatible,
   normalizeWalmartPayload,
+  productIdentityCompatible,
   verifyStudentPassword,
   walmartUrlsForWindow,
 } = await import('../lib/platform.js');
@@ -77,6 +79,11 @@ test('prioritizes discounted standardized products over variation-heavy products
   };
   const variationHeavy = { title: 'Acme Women Shoe Size 8', currentPrice: 20 };
   assert.ok(candidatePriority(discounted) > candidatePriority(variationHeavy));
+});
+
+test('excludes variation-heavy apparel before provider analysis', () => {
+  assert.equal(isExcludedProductType('Time and Tru Women Underwire One Piece Swimsuit'), true);
+  assert.equal(isExcludedProductType('Tide Laundry Detergent Pods'), false);
 });
 
 test('does not concatenate repeated Walmart price text', () => {
@@ -149,6 +156,24 @@ test('uses Keepa numberOfItems when the Amazon title omits pack size', () => {
     'Better Office Products Blue Paper Folders',
     50,
   ).compatible, false);
+});
+
+test('rejects similar product titles from different brands', () => {
+  assert.equal(productIdentityCompatible(
+    'Time and Tru Women Underwire One Piece Swimsuit',
+    'SUUKSESS Women Underwire One Piece Swimsuit',
+    'Time and Tru',
+    'SUUKSESS',
+  ), false);
+});
+
+test('accepts normalized matching brands with meaningful title overlap', () => {
+  assert.equal(productIdentityCompatible(
+    'Coca-Cola Zero Sugar Orange Vanilla Soda',
+    'Coca Cola Zero Sugar Orange Vanilla Soft Drink',
+    'Coca-Cola',
+    'Coca Cola',
+  ), true);
 });
 
 test('treats explicit pack size as outer quantity instead of inner count', () => {
