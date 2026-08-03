@@ -88,6 +88,7 @@ export default async function handler(request, response) {
       scrapedCandidateCount: scrapedCandidates.length,
       skippedRecentlyAnalyzed,
       sourceWindow,
+      sourceUrl: sourceUrls[0],
       sourcePages: sourceUrls.length,
       staged: true,
       totalChunks: chunks.length,
@@ -128,6 +129,7 @@ export default async function handler(request, response) {
       analysisJobs: chunks.length,
       initiallyQueuedJobs: initiallyQueuedChunks,
       sourceWindow,
+      sourceUrl: sourceUrls[0],
       sourcePages: sourceUrls.length,
       initialDelayMinutes: Math.ceil(initialDelaySeconds / 60),
       estimatedAnalysisMinutes: Math.ceil(analysisDelaySeconds(

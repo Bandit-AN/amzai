@@ -26,6 +26,7 @@ const {
   productIdentityCompatible,
   productCodesCompatible,
   verifyStudentPassword,
+  walmartSourceUrls,
   walmartUrlsForWindow,
 } = await import('../lib/platform.js');
 
@@ -65,14 +66,21 @@ test('preserves Walmart original price and UPC when present', () => {
   assert.equal(product.upc, '001234567890');
 });
 
-test('rotates Walmart pagination windows without changing request volume', () => {
+test('rotates distinct Walmart feeds before moving deeper', () => {
   const first = walmartUrlsForWindow(0);
   const second = walmartUrlsForWindow(1);
+  const fifth = walmartUrlsForWindow(4);
   assert.equal(first.length, 6);
+  assert.equal(second.length, 6);
+  assert.equal(walmartSourceUrls().length, 4);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[5], /page=6/);
-  assert.match(second[0], /page=7/);
-  assert.match(second[5], /page=12/);
+  assert.match(first[0], /\/shop\/savings/);
+  assert.match(second[0], /\/shop\/deals\/clearance/);
+  assert.match(walmartUrlsForWindow(2)[0], /\/shop\/deals\/new-deals/);
+  assert.match(walmartUrlsForWindow(3)[0], /\/shop\/deals\/trending/);
+  assert.match(fifth[0], /page=7/);
+  for (const url of [...first, ...second]) assert.match(url, /retailer_type%3AWalmart/);
 });
 
 test('prioritizes discounted standardized products over variation-heavy products', () => {
