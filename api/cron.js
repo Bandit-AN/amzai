@@ -6,6 +6,7 @@ import {
   fetchActiveStudents,
   fetchKeepaTokenStatus,
   fetchWalmartCatalog,
+  getRunSummary,
   jsonResponse,
   keepaInitialDelaySeconds,
   publishBatch,
@@ -25,6 +26,19 @@ export default async function handler(request, response) {
       'AIRTABLE_BASE_ID', 'QSTASH_TOKEN', 'UPSTASH_REDIS_REST_URL',
       'UPSTASH_REDIS_REST_TOKEN', 'PUBLIC_BASE_URL', 'WORKER_SECRET', 'KEEPA_API_KEY',
     ]);
+    const recentRunIds = await redis.lrange('runs:recent', 0, 4);
+    for (const recentRunId of recentRunIds) {
+      const recentRun = await getRunSummary(recentRunId);
+      if (recentRun?.status === 'analyzing') {
+        return jsonResponse(response, 409, {
+          ok: false,
+          error: 'A sourcing run is already active',
+          activeRunId: recentRunId,
+          completedJobs: recentRun.completedJobs,
+          totalJobs: recentRun.totalJobs,
+        });
+      }
+    }
     const requestedLimit = Number.parseInt(request.query?.limit, 10);
     const candidateLimit = Number.isInteger(requestedLimit)
       ? Math.max(1, Math.min(requestedLimit, config.maxCandidates))

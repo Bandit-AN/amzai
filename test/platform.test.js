@@ -4,6 +4,7 @@ import test from 'node:test';
 process.env.GEMINI_KEY = 'test-key';
 process.env.MINIMUM_ROI = '50';
 process.env.MINIMUM_MONTHLY_SALES = '200';
+globalThis.File ??= class File {};
 
 const {
   analysisDelaySeconds,
@@ -42,6 +43,23 @@ test('normalizes and deduplicates Walmart candidates by item ID', () => {
   assert.equal(products.length, 1);
   assert.equal(products[0].itemId, '12345');
   assert.equal(products[0].currentPrice, 9.99);
+});
+
+test('does not concatenate repeated Walmart price text', () => {
+  const products = normalizeWalmartPayload({ items: [
+    {
+      name: 'Repeated Price Widget',
+      price: '$19.96 current price $19.96',
+      url: '/ip/repeated-price-widget/67890',
+    },
+    {
+      name: 'Comma Price Widget',
+      price: '$1,299.99',
+      url: '/ip/comma-price-widget/67891',
+    },
+  ] });
+  assert.equal(products[0].currentPrice, 19.96);
+  assert.equal(products[1].currentPrice, 1299.99);
 });
 
 test('calculates estimated profit and flags policy status as unverified', () => {

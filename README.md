@@ -113,6 +113,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 ```
 
 The production cron is configured for `13:00 UTC` daily (6:00 AM Pacific during daylight saving time and 5:00 AM Pacific during standard time). Vercel cron schedules are UTC and only invoke production deployments.
+If a manual or scheduled sourcing run is still analyzing, a new cron invocation returns `409` with the active run ID instead of creating an overlapping Keepa queue.
 
 ## Scale expectations
 
