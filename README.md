@@ -89,7 +89,7 @@ Before calculating ROI, explicit count, pack, weight, and volume values in the W
 
 Completed Walmart item/title/price combinations are cached for seven days, so unchanged listings do not repeatedly consume Gemini and Keepa. A price or title change produces a new fingerprint and is eligible immediately. Successfully delivered Amazon ASINs are also suppressed for seven days across runs.
 
-Candidates are ranked before Keepa using available clearance discount, UPC/GTIN presence, explicit quantity information, practical OA price bands, and category heuristics. Variation-heavy, oversized, and perishable listings are deprioritized. Keepa work is released in waves; if strict allocation can already fill every active student's target, later waves are not published.
+Candidates are ranked before Keepa using available clearance discount, UPC/GTIN presence, explicit quantity information, practical OA price bands, and category heuristics. Variation-heavy, oversized, and perishable listings are deprioritized. The configured ROI threshold is the gross Amazon-versus-Walmart price spread before fees; estimated fees and net profit are displayed for manual review but do not control qualification. Keepa work is released in waves; if strict allocation can already fill every active student's target, later waves are not published.
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 

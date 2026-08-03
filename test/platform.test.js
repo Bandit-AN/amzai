@@ -21,8 +21,10 @@ const {
   isRetryableProviderError,
   keepaInitialDelaySeconds,
   listingQuantitiesCompatible,
+  listingVariantsCompatible,
   normalizeWalmartPayload,
   productIdentityCompatible,
+  productCodesCompatible,
   verifyStudentPassword,
   walmartUrlsForWindow,
 } = await import('../lib/platform.js');
@@ -176,6 +178,26 @@ test('accepts normalized matching brands with meaningful title overlap', () => {
   ), true);
 });
 
+test('rejects conflicting colors and product versions', () => {
+  assert.equal(listingVariantsCompatible(
+    'Anker PowerLine Select+ Lightning Cable, 6 ft, Black',
+    'Anker Powerline II Lightning Cable, 6 ft, White',
+  ), false);
+  assert.equal(listingVariantsCompatible(
+    'Anker PowerLine II Lightning Cable, 6 ft, Black',
+    'Anker Powerline II Lightning Cable, 6 feet, Black',
+  ), true);
+});
+
+test('requires Walmart UPC to agree with Keepa product codes when available', () => {
+  assert.equal(productCodesCompatible('0848061064360', {
+    upcList: ['848061064360'], eanList: ['0848061064360'],
+  }), true);
+  assert.equal(productCodesCompatible('001234567890', {
+    upcList: ['848061064360'],
+  }), false);
+});
+
 test('treats explicit pack size as outer quantity instead of inner count', () => {
   assert.deepEqual(
     extractListingQuantities('Sticky Notes, 18 Pack, 100 Count per Pad').outer_count,
@@ -212,7 +234,7 @@ test('calculates estimated profit and flags policy status as unverified', () => 
   assert.equal(deal.amazonPrice, 30);
   assert.equal(deal.estimatedFees, 10);
   assert.equal(deal.estimatedProfit, 10);
-  assert.equal(deal.roi, 100);
+  assert.equal(deal.roi, 200);
   assert.equal(deal.policyStatus, 'UNVERIFIED');
 });
 
