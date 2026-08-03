@@ -25,9 +25,13 @@ export default async function handler(request, response) {
       'AIRTABLE_BASE_ID', 'QSTASH_TOKEN', 'UPSTASH_REDIS_REST_URL',
       'UPSTASH_REDIS_REST_TOKEN', 'PUBLIC_BASE_URL', 'WORKER_SECRET', 'KEEPA_API_KEY',
     ]);
+    const requestedLimit = Number.parseInt(request.query?.limit, 10);
+    const candidateLimit = Number.isInteger(requestedLimit)
+      ? Math.max(1, Math.min(requestedLimit, config.maxCandidates))
+      : config.maxCandidates;
     const [students, candidates] = await Promise.all([
       fetchActiveStudents(),
-      fetchWalmartCatalog(),
+      fetchWalmartCatalog(candidateLimit),
     ]);
     if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
     if (candidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
@@ -78,6 +82,7 @@ export default async function handler(request, response) {
       runId,
       students: students.length,
       candidates: candidates.length,
+      candidateLimit,
       analysisJobs: chunks.length,
       initialDelayMinutes: Math.ceil(initialDelaySeconds / 60),
       estimatedAnalysisMinutes: Math.ceil(analysisDelaySeconds(

@@ -99,6 +99,12 @@ QStash requires publicly reachable worker URLs, so a complete queue test needs a
 curl -H "Authorization: Bearer $CRON_SECRET" "$PUBLIC_BASE_URL/api/cron"
 ```
 
+Run a smaller authenticated smoke test without changing the daily production limit:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" "$PUBLIC_BASE_URL/api/cron?limit=3"
+```
+
 Check a run without exposing student credentials:
 
 ```bash
