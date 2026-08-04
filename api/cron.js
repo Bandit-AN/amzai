@@ -29,10 +29,13 @@ export default async function handler(request, response) {
   try {
     const input = request.method === 'POST' ? await readJsonBody(request) : (request.query || {});
     requireEnvironment([
-      'WALMART_SCRAPER_API_KEY', 'WALMART_TARGET_URLS', 'AIRTABLE_PAT',
+      'WALMART_TARGET_URLS', 'AIRTABLE_PAT',
       'AIRTABLE_BASE_ID', 'QSTASH_TOKEN', 'UPSTASH_REDIS_REST_URL',
       'UPSTASH_REDIS_REST_TOKEN', 'PUBLIC_BASE_URL', 'WORKER_SECRET', 'KEEPA_API_KEY',
     ]);
+    if (!config.scraperApiKey && !config.walmartScraperApiKey) {
+      throw new Error('SCRAPERAPI_KEY or WALMART_SCRAPER_API_KEY is required');
+    }
     const recentRunIds = await redis.lrange('runs:recent', 0, 4);
     for (const recentRunId of recentRunIds) {
       const recentRun = await getRunSummary(recentRunId);

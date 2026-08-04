@@ -99,6 +99,8 @@ Walmart runs rotate through retailer-filtered Savings, Clearance, New Deals, Tre
 
 `WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. `BLOCKED_BRANDS` applies the same early exclusion to restricted national brands. LEGO, Barbie, Monster High, and Apple are always blocked; configured values extend that list. These filters save downstream usage, though the source pages must still be downloaded by the scraper.
 
+When `SCRAPERAPI_KEY` is configured, Walmart pages use ScraperAPI with JavaScript rendering and US routing. ScrapingBee remains a compatibility fallback when its key is also present.
+
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 
 The finalizer deduplicates by ASIN, ranks qualified deals, rotates the student order deterministically per run, and assigns every deal to at most one student. Student ROI, sales, maximum-cost, and excluded-brand preferences are enforced during allocation. During optimization, `DELIVER_ALL_QUALIFIED=true` distributes every qualified deal; set it to `false` later to restore the `TARGET_DEALS_PER_STUDENT` cap. Discord delivery automatically splits assignments into confirmed messages of at most four product embeds and retries provider rate limits.
