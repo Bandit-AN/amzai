@@ -8,6 +8,7 @@ import {
   fetchWalmartCatalog,
   filterRecentlyAnalyzedCandidates,
   getRunSummary,
+  isExcludedWalmartBrand,
   jsonResponse,
   keepaInitialDelaySeconds,
   publishBatch,
@@ -50,22 +51,30 @@ export default async function handler(request, response) {
       ? Math.max(0, requestedWindow)
       : Math.floor(Date.now() / 86400000);
     const sourceUrls = walmartUrlsForWindow(sourceWindow);
-    const [students, scrapedCandidates] = await Promise.all([
+    const [students, rawScrapedCandidates] = await Promise.all([
       fetchActiveStudents(),
-      fetchWalmartCatalog(candidateLimit, sourceUrls),
+      fetchWalmartCatalog(Math.min(config.maxCandidates, candidateLimit * 2), sourceUrls),
     ]);
     if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
-    if (scrapedCandidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
+    if (rawScrapedCandidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
+    const allBrandEligibleCandidates = rawScrapedCandidates
+      .filter((candidate) => !isExcludedWalmartBrand(candidate));
+    const excludedWalmartBrands = rawScrapedCandidates.length - allBrandEligibleCandidates.length;
+    const brandEligibleCandidates = allBrandEligibleCandidates.slice(0, candidateLimit);
+    if (brandEligibleCandidates.length === 0) {
+      throw new Error('Every scraped candidate was excluded as a Walmart private-label brand');
+    }
     const candidates = request.query?.refresh === 'true'
-      ? scrapedCandidates
-      : await filterRecentlyAnalyzedCandidates(scrapedCandidates);
-    const skippedRecentlyAnalyzed = scrapedCandidates.length - candidates.length;
+      ? brandEligibleCandidates
+      : await filterRecentlyAnalyzedCandidates(brandEligibleCandidates);
+    const skippedRecentlyAnalyzed = brandEligibleCandidates.length - candidates.length;
     if (candidates.length === 0) {
       return jsonResponse(response, 200, {
         ok: true,
         skipped: true,
         reason: 'No new or price-changed Walmart candidates were found',
-        scrapedCandidates: scrapedCandidates.length,
+        scrapedCandidates: rawScrapedCandidates.length,
+        excludedWalmartBrands,
         skippedRecentlyAnalyzed,
       });
     }
@@ -85,7 +94,8 @@ export default async function handler(request, response) {
       status: 'analyzing',
       students,
       candidateCount: candidates.length,
-      scrapedCandidateCount: scrapedCandidates.length,
+      scrapedCandidateCount: rawScrapedCandidates.length,
+      excludedWalmartBrands,
       skippedRecentlyAnalyzed,
       sourceWindow,
       sourceUrl: sourceUrls[0],
@@ -123,7 +133,8 @@ export default async function handler(request, response) {
       runId,
       students: students.length,
       candidates: candidates.length,
-      scrapedCandidates: scrapedCandidates.length,
+      scrapedCandidates: rawScrapedCandidates.length,
+      excludedWalmartBrands,
       skippedRecentlyAnalyzed,
       candidateLimit,
       analysisJobs: chunks.length,

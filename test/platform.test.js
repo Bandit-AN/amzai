@@ -18,6 +18,7 @@ const {
   extractListingQuantities,
   hashStudentPassword,
   isExcludedProductType,
+  isExcludedWalmartBrand,
   isRetryableProviderError,
   keepaInitialDelaySeconds,
   listingQuantitiesCompatible,
@@ -96,6 +97,13 @@ test('prioritizes discounted standardized products over variation-heavy products
 test('enforces the global Walmart buy-cost ceiling', () => {
   assert.equal(withinBuyCostLimit(150), true);
   assert.equal(withinBuyCostLimit(150.01), false);
+});
+
+test('filters Walmart private labels without excluding national brands', () => {
+  assert.equal(isExcludedWalmartBrand({ title: 'No Boundaries Women Graphic Tee' }), true);
+  assert.equal(isExcludedWalmartBrand({ title: 'Pen+Gear Yellow Sticky Notes' }), true);
+  assert.equal(isExcludedWalmartBrand({ title: 'Crayola Broad Line Markers' }), false);
+  assert.equal(isExcludedWalmartBrand({ title: 'Madden NFL 26 for PlayStation 5' }), false);
 });
 
 test('identifies variation-heavy apparel for risk labeling', () => {
