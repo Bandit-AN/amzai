@@ -178,6 +178,17 @@ test('rejects mismatched outer packs even when inner sheet counts match', () => 
   ).compatible, false);
 });
 
+test('rejects craft kits with different piece and rubber-band quantities', () => {
+  assert.equal(listingQuantitiesCompatible(
+    'Rainbow Loom 1200 Piece Rubber Band Bracelet Kit',
+    'Rainbow Loom Mega Set with 7000 Rubber Bands',
+  ).compatible, false);
+  assert.equal(listingQuantitiesCompatible(
+    'Rainbow Loom Glow Party Bands',
+    'Rainbow Loom Treasure Box with 7000 Rubber Bands',
+  ).compatible, false);
+});
+
 test('rejects mismatched component quantities', () => {
   const result = listingQuantitiesCompatible(
     'Zevo Compact Flying Insect Trap - 1 Plug In Device & 1 Cartridge',
@@ -326,6 +337,15 @@ test('allocation respects per-student maximum cost and excluded brands', () => {
     { asin: 'B000000003', brand: 'Acme', currentPrice: 8, roi: 80, estimatedMonthlySales: 300 },
   ], students, 10, 'run-1');
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['B000000003']);
+});
+
+test('allocation enforces the global 60 percent ROI floor', () => {
+  const students = [{ id: 'a', minRoi: 50, minMonthlySales: 200, maxCost: 100, excludedBrands: [] }];
+  const assignments = allocateDeals([
+    { asin: 'LOW', brand: 'Acme', currentPrice: 10, roi: 59.9, estimatedMonthlySales: 500 },
+    { asin: 'PASS', brand: 'Acme', currentPrice: 10, roi: 60, estimatedMonthlySales: 500 },
+  ], students, 10, 'run-roi');
+  assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PASS']);
 });
 
 test('Discord cards include the mandatory manual IP warning', () => {
