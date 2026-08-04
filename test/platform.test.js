@@ -25,6 +25,7 @@ const {
   normalizeWalmartPayload,
   productIdentityCompatible,
   productCodesCompatible,
+  productFormsCompatible,
   verifyStudentPassword,
   walmartSourceUrls,
   walmartUrlsForWindow,
@@ -195,6 +196,24 @@ test('rejects conflicting colors and product versions', () => {
     'Anker PowerLine II Lightning Cable, 6 ft, Black',
     'Anker Powerline II Lightning Cable, 6 feet, Black',
   ), true);
+});
+
+test('rejects a movie matched to playback hardware', () => {
+  assert.equal(productFormsCompatible(
+    'The Shallows 4K Ultra HD + Blu-ray Movie',
+    'Sony 4K Ultra HD Home Theater Blu-ray DVD Player',
+  ), false);
+});
+
+test('compares oz and fluid-ounce variants as the same product size', () => {
+  assert.equal(listingQuantitiesCompatible(
+    'Versace Bright Crystal Perfume, 3 Fluid Ounces',
+    'Versace Bright Crystal Eau de Toilette, 6.7 oz',
+  ).compatible, false);
+  assert.equal(listingQuantitiesCompatible(
+    'Dolce & Gabbana Light Blue, 3.4 oz',
+    'Dolce & Gabbana Light Blue, 3.4 fl oz',
+  ).compatible, true);
 });
 
 test('requires Walmart UPC to agree with Keepa product codes when available', () => {

@@ -92,6 +92,8 @@ Completed Walmart item/title/price combinations are cached for seven days, so un
 
 Candidates are ranked before Keepa using available clearance discount, UPC/GTIN presence, explicit quantity information, practical OA price bands, and category heuristics. Variation-heavy, oversized, and perishable listings are deprioritized. The configured ROI threshold is the gross Amazon-versus-Walmart price spread before fees; estimated fees and net profit are displayed for manual review but do not control qualification. Keepa work is released in waves; if strict allocation can already fill every active student's target, later waves are not published.
 
+Qualified-deal ranking caps the benefit of gross spread at 75%, so implausible 200%–300% spreads cannot dominate solid products near the 50% threshold. Sales velocity remains part of ranking. Fragrance products are currently excluded because ounce variants are frequently ambiguous across retailer cards.
+
 Walmart runs rotate through the retailer-filtered Savings, Clearance, New Deals, and Trending Deals feeds before moving to the next six-page block within a feed. Only one six-page feed window is scraped per run, keeping ScrapingBee usage bounded while reducing repeated inventory.
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
