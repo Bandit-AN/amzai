@@ -101,7 +101,7 @@ Walmart runs rotate through retailer-filtered Savings, Clearance, New Deals, Tre
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 
-The finalizer deduplicates by ASIN, ranks qualified deals, rotates the student order deterministically per run, and assigns every deal to at most one student. Student ROI, sales, maximum-cost, and excluded-brand preferences are enforced during allocation. `TARGET_DEALS_PER_STUDENT` caps each student's assignment and defaults to 10. Discord delivery automatically splits larger assignments into confirmed messages of at most four product embeds.
+The finalizer deduplicates by ASIN, ranks qualified deals, rotates the student order deterministically per run, and assigns every deal to at most one student. Student ROI, sales, maximum-cost, and excluded-brand preferences are enforced during allocation. During optimization, `DELIVER_ALL_QUALIFIED=true` distributes every qualified deal; set it to `false` later to restore the `TARGET_DEALS_PER_STUDENT` cap. Discord delivery automatically splits assignments into confirmed messages of at most four product embeds and retries provider rate limits.
 
 ## Run locally
 

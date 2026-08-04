@@ -31,7 +31,10 @@ export default async function handler(request, response) {
     const analysisErrors = await redis.lrange(`run:${runId}:errors`, 0, -1);
     const previousDelivery = await redis.mget(rawDeals.map((deal) => `catalog:delivered-asin:${deal.asin}`));
     const freshDeals = rawDeals.filter((_, index) => !previousDelivery[index]);
-    const assignments = allocateDeals(freshDeals, meta.students, meta.targetDealsPerStudent, runId);
+    const assignmentLimit = config.deliverAllQualified
+      ? Math.max(1, freshDeals.length)
+      : meta.targetDealsPerStudent;
+    const assignments = allocateDeals(freshDeals, meta.students, assignmentLimit, runId);
     const deliveryJobs = [];
     for (const [studentId, deals] of Object.entries(assignments)) {
       await redis.set(`run:${runId}:assignment:${studentId}`, deals, { ex: config.runTtlSeconds });
@@ -53,7 +56,9 @@ export default async function handler(request, response) {
       assigned,
       studentsReceivingDeals: deliveryJobs.length,
       analysisErrors: analysisErrors.length,
-      unfilledSlots: Math.max(0, meta.students.length * meta.targetDealsPerStudent - assigned),
+      unfilledSlots: config.deliverAllQualified
+        ? 0
+        : Math.max(0, meta.students.length * meta.targetDealsPerStudent - assigned),
     });
   } catch (error) {
     if (runId) await redis.del(lockKey()).catch(() => {});

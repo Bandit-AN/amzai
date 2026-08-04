@@ -10,6 +10,21 @@ import {
   workerAuthorized,
 } from '../lib/platform.js';
 
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function postDiscord(webhook, payload) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await axios.post(webhook, payload, { timeout: config.requestTimeoutMs });
+    } catch (error) {
+      if (error.response?.status !== 429 || attempt === 4) throw error;
+      const retryAfterSeconds = Number(error.response?.data?.retry_after || 1);
+      await wait(Math.max(250, Math.ceil(retryAfterSeconds * 1000)));
+    }
+  }
+  throw new Error('Discord delivery retries exhausted');
+}
+
 export default async function handler(request, response) {
   if (request.method !== 'POST') return jsonResponse(response, 405, { error: 'Method not allowed' });
   if (!workerAuthorized(request)) return jsonResponse(response, 401, { error: 'Unauthorized' });
@@ -38,7 +53,7 @@ export default async function handler(request, response) {
     const webhook = new URL(student.discordWebhookUrl);
     webhook.searchParams.set('wait', 'true');
     for (const payload of payloads) {
-      await axios.post(webhook.href, payload, { timeout: config.requestTimeoutMs });
+      await postDiscord(webhook.href, payload);
     }
     await Promise.all([
       redis.set(`run:${runId}:delivered:${studentId}`, true, { ex: config.runTtlSeconds }),
