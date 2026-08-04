@@ -73,17 +73,27 @@ test('rotates distinct Walmart feeds before moving deeper', () => {
   const first = walmartUrlsForWindow(0);
   const second = walmartUrlsForWindow(1);
   const fifth = walmartUrlsForWindow(4);
+  const twentieth = walmartUrlsForWindow(19);
   assert.equal(first.length, 6);
   assert.equal(second.length, 6);
-  assert.equal(walmartSourceUrls().length, 4);
+  assert.equal(walmartSourceUrls().length, 19);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[5], /page=6/);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
   assert.match(walmartUrlsForWindow(2)[0], /\/shop\/deals\/new-deals/);
   assert.match(walmartUrlsForWindow(3)[0], /\/shop\/deals\/trending/);
-  assert.match(fifth[0], /page=7/);
+  assert.match(fifth[0], /clearance\+toys/);
+  assert.match(twentieth[0], /page=7/);
   for (const url of [...first, ...second]) assert.match(url, /retailer_type%3AWalmart/);
+});
+
+test('includes retailer-filtered sourcing searches without collapsing their queries', () => {
+  const sources = walmartSourceUrls();
+  assert.equal(sources.filter((url) => url.includes('/search?')).length, 15);
+  assert.ok(sources.some((url) => url.includes('clearance+video+games')));
+  assert.ok(sources.some((url) => url.includes('Crayola+clearance')));
+  for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 
 test('prioritizes discounted standardized products over variation-heavy products', () => {

@@ -95,7 +95,7 @@ Candidates are ranked before Keepa using available clearance discount, UPC/GTIN 
 
 Qualified-deal ranking caps the benefit of gross spread at 75%, so implausible 200%–300% spreads cannot dominate solid products near the 50% threshold. Sales velocity remains part of ranking. Fragrance products are currently excluded because ounce variants are frequently ambiguous across retailer cards.
 
-Walmart runs rotate through the retailer-filtered Savings, Clearance, New Deals, and Trending Deals feeds before moving to the next six-page block within a feed. Only one six-page feed window is scraped per run, keeping ScrapingBee usage bounded while reducing repeated inventory.
+Walmart runs rotate through retailer-filtered Savings, Clearance, New Deals, Trending Deals, broad OA category searches, and targeted searches for historically useful brands/products before moving deeper within a source. Only one six-page source window is scraped per run, keeping ScrapingBee usage bounded while reducing repeated inventory.
 
 `WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. It saves downstream usage, though the source pages must still be downloaded by the scraper.
 
