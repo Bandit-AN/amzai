@@ -53,6 +53,7 @@ function renderRuns(runs) {
       no_amazon_match: 'no Amazon match', identity_mismatch: 'identity',
       product_code_mismatch: 'UPC/EAN', variant_mismatch: 'variant',
       product_type_mismatch: 'product type', excluded_fragrance: 'fragrance excluded',
+      buy_cost_over_limit: 'buy cost over $150',
       quantity_mismatch: 'quantity', blocked_brand: 'blocked brand',
       missing_amazon_price: 'missing price', price_spread: 'under spread',
       missing_sales_velocity: 'missing sales', sales_velocity: 'under sales', other: 'other',

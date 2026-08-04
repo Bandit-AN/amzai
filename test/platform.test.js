@@ -29,6 +29,7 @@ const {
   verifyStudentPassword,
   walmartSourceUrls,
   walmartUrlsForWindow,
+  withinBuyCostLimit,
 } = await import('../lib/platform.js');
 
 test('student passwords are hashed and verified without storing plaintext', async () => {
@@ -90,6 +91,11 @@ test('prioritizes discounted standardized products over variation-heavy products
   };
   const variationHeavy = { title: 'Acme Women Shoe Size 8', currentPrice: 20 };
   assert.ok(candidatePriority(discounted) > candidatePriority(variationHeavy));
+});
+
+test('enforces the global Walmart buy-cost ceiling', () => {
+  assert.equal(withinBuyCostLimit(150), true);
+  assert.equal(withinBuyCostLimit(150.01), false);
 });
 
 test('identifies variation-heavy apparel for risk labeling', () => {
