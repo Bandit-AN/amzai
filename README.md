@@ -97,7 +97,7 @@ Qualified-deal ranking caps the benefit of gross spread at 75%, so implausible 2
 
 Walmart runs rotate through retailer-filtered Savings, Clearance, New Deals, Trending Deals, broad OA category searches, and targeted searches for historically useful brands/products before moving deeper within a source. Only one six-page source window is scraped per run, keeping ScrapingBee usage bounded while reducing repeated inventory.
 
-`WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. `BLOCKED_BRANDS` applies the same early exclusion to restricted national brands and defaults to LEGO. These filters save downstream usage, though the source pages must still be downloaded by the scraper.
+`WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. `BLOCKED_BRANDS` applies the same early exclusion to restricted national brands. LEGO, Barbie, and Monster High are always blocked; configured values extend that list. These filters save downstream usage, though the source pages must still be downloaded by the scraper.
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 

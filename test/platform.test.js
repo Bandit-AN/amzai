@@ -119,8 +119,10 @@ test('filters Walmart private labels without excluding national brands', () => {
   assert.equal(isExcludedWalmartBrand({ title: 'Madden NFL 26 for PlayStation 5' }), false);
 });
 
-test('globally blocks LEGO before downstream analysis', () => {
+test('globally blocks restricted national brands before downstream analysis', () => {
   assert.equal(isExcludedWalmartBrand({ title: 'LEGO Creator Building Set' }), true);
+  assert.equal(isExcludedWalmartBrand({ title: 'Barbie Fashionistas Doll' }), true);
+  assert.equal(isExcludedWalmartBrand({ title: 'Monster High Clawdeen Wolf Doll' }), true);
 });
 
 test('identifies variation-heavy apparel for risk labeling', () => {
