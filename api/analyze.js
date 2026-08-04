@@ -104,10 +104,16 @@ export default async function handler(request, response) {
         continue;
       }
       try {
-        const deal = await analyzeCandidate(candidate);
-        if (deal) {
-          await redis.rpush(`run:${runId}:qualified`, deal);
+        const result = await analyzeCandidate(candidate);
+        if (result.deal) {
+          await redis.rpush(`run:${runId}:qualified`, result.deal);
           qualified += 1;
+        } else {
+          await redis.rpush(`run:${runId}:rejections`, {
+            chunkIndex,
+            title: candidate.title,
+            reason: result.rejection || 'other',
+          });
         }
       } catch (error) {
         if (isRetryableProviderError(error)) throw error;

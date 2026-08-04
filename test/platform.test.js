@@ -91,7 +91,7 @@ test('prioritizes discounted standardized products over variation-heavy products
   assert.ok(candidatePriority(discounted) > candidatePriority(variationHeavy));
 });
 
-test('excludes variation-heavy apparel before provider analysis', () => {
+test('identifies variation-heavy apparel for risk labeling', () => {
   assert.equal(isExcludedProductType('Time and Tru Women Underwire One Piece Swimsuit'), true);
   assert.equal(isExcludedProductType('Tide Laundry Detergent Pods'), false);
 });

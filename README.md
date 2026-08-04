@@ -66,7 +66,8 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `PORTAL_SESSION_SECRET`: a third random secret used only to sign 12-hour student login cookies.
 - `ONBOARDING_VIDEO_URL`: an embeddable HTTPS video URL; leave blank to show the branded placeholder.
 - `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
-- `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for keyword search plus product details; defaults to `12`.
+- `KEEPA_SEARCH_RESULTS`: number of Amazon candidates evaluated per Walmart product; defaults to `5`.
+- `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for one keyword search plus five product details; defaults to `15`.
 - `WALMART_RENDER_JS=true` with `WALMART_PREMIUM_PROXY=false`: uses the verified 5-credit page request and automatically retries once with a premium US proxy only for blocking or temporary upstream failures.
 - `STUDENT_CACHE_SECONDS`: Redis cache lifetime for the active Airtable roster; defaults to 15 minutes.
 - `PRODUCT_COOLDOWN_SECONDS`: unchanged-product and delivered-ASIN cooldown; defaults to 30 days.

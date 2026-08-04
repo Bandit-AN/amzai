@@ -49,10 +49,22 @@ function renderRuns(runs) {
     const total = Math.max(1, Number(run.totalJobs || 0));
     const percent = Math.min(100, Math.round((Number(run.completedJobs || 0) / total) * 100));
     const deliveries = (run.delivery || []).filter((item) => item.delivered).length;
+    const rejectionLabels = {
+      no_amazon_match: 'no Amazon match', identity_mismatch: 'identity',
+      product_code_mismatch: 'UPC/EAN', variant_mismatch: 'variant',
+      quantity_mismatch: 'quantity', blocked_brand: 'blocked brand',
+      missing_amazon_price: 'missing price', price_spread: 'under spread',
+      missing_sales_velocity: 'missing sales', sales_velocity: 'under sales', other: 'other',
+    };
+    const rejectionSummary = Object.entries(run.rejectionCounts || {})
+      .filter(([, count]) => count > 0)
+      .map(([reason, count]) => `${count} ${rejectionLabels[reason] || reason}`)
+      .join(' · ');
     return `<div class="run-card">
       <div class="run-top"><div><div class="run-id">${escapeHtml(run.runId)}</div><span class="metric-detail">${formatDate(run.createdAt)}</span></div><span class="status ${['finalized','cancelled'].includes(run.status) ? run.status : ''}">${escapeHtml(run.status)}</span></div>
       <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
       <div class="run-stats"><span><b>${run.completedJobs}/${run.totalJobs}</b> analyzed</span><span><b>${run.qualifiedDeals}</b> qualified</span><span><b>${run.analysisErrors}</b> errors</span><span><b>${deliveries}</b> delivered</span></div>
+      ${rejectionSummary ? `<div class="metric-detail">Rejected: ${escapeHtml(rejectionSummary)}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -61,7 +73,7 @@ function renderStudents(students) {
   $('#studentCount').textContent = students.length;
   $('#studentsList').innerHTML = students.length ? students.map((student) => `<div class="student">
     <div class="avatar">${escapeHtml(String(student.name || '?').slice(0, 1).toUpperCase())}</div>
-    <div class="student-info"><strong>${escapeHtml(student.name)}</strong><small>≥ ${escapeHtml(student.minRoi)}% ROI · ≥ ${escapeHtml(student.minMonthlySales)} sales/mo</small></div>
+    <div class="student-info"><strong>${escapeHtml(student.name)}</strong><small>≥ ${escapeHtml(student.minRoi)}% gross spread · ≥ ${escapeHtml(student.minMonthlySales)} sales/mo</small></div>
     <span class="ready-dot" title="Discord configured"></span>
   </div>`).join('') : '<div class="empty-state">No active students</div>';
 }
