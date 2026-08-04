@@ -46,6 +46,18 @@ export default async function handler(request, response) {
     }
     if (deliveryJobs.length > 0) await publishBatch(deliveryJobs);
     await redis.set(`run:${runId}:finalized`, true, { ex: config.runTtlSeconds });
+    if (Number(meta.continuationRunsRemaining) > 0) {
+      await publishBatch([{
+        url: `${config.publicBaseUrl}/api/cron`,
+        body: {
+          window: Number(meta.sourceWindow) + 1,
+          limit: config.maxCandidates,
+          continuationRunsRemaining: Number(meta.continuationRunsRemaining) - 1,
+        },
+        deduplicationId: `${runId}-continue-${Number(meta.sourceWindow) + 1}`,
+        delaySeconds: 120,
+      }]);
+    }
     await redis.del(lockKey());
     const assigned = Object.values(assignments).reduce((sum, deals) => sum + deals.length, 0);
     return jsonResponse(response, 200, {

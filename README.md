@@ -103,6 +103,8 @@ Keepa does **not** verify intellectual-property complaint risk or whether a part
 
 The finalizer deduplicates by ASIN, ranks qualified deals, rotates the student order deterministically per run, and assigns every deal to at most one student. Student ROI, sales, maximum-cost, and excluded-brand preferences are enforced during allocation. During optimization, `DELIVER_ALL_QUALIFIED=true` distributes every qualified deal; set it to `false` later to restore the `TARGET_DEALS_PER_STUDENT` cap. Discord delivery automatically splits assignments into confirmed messages of at most four product embeds and retries provider rate limits.
 
+Manual optimization runs may include a bounded `continuationRunsRemaining` count. Each run finalizes before QStash starts the next Walmart source, preventing overlapping Keepa work and unbounded scraper spending.
+
 ## Run locally
 
 Use Node 20.18.1 or newer:

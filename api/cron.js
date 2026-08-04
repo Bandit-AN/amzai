@@ -12,18 +12,22 @@ import {
   jsonResponse,
   keepaInitialDelaySeconds,
   publishBatch,
+  readJsonBody,
   redis,
   requireEnvironment,
   walmartUrlsForWindow,
+  workerAuthorized,
 } from '../lib/platform.js';
 
 export default async function handler(request, response) {
-  if (request.method !== 'GET') return jsonResponse(response, 405, { error: 'Method not allowed' });
-  if (config.cronSecret && request.headers.authorization !== `Bearer ${config.cronSecret}`) {
+  if (!['GET', 'POST'].includes(request.method)) return jsonResponse(response, 405, { error: 'Method not allowed' });
+  const internalRequest = request.method === 'POST' && workerAuthorized(request);
+  if (!internalRequest && config.cronSecret && request.headers.authorization !== `Bearer ${config.cronSecret}`) {
     return jsonResponse(response, 401, { error: 'Unauthorized' });
   }
 
   try {
+    const input = request.method === 'POST' ? await readJsonBody(request) : (request.query || {});
     requireEnvironment([
       'WALMART_SCRAPER_API_KEY', 'WALMART_TARGET_URLS', 'AIRTABLE_PAT',
       'AIRTABLE_BASE_ID', 'QSTASH_TOKEN', 'UPSTASH_REDIS_REST_URL',
@@ -42,11 +46,11 @@ export default async function handler(request, response) {
         });
       }
     }
-    const requestedLimit = Number.parseInt(request.query?.limit, 10);
+    const requestedLimit = Number.parseInt(input.limit, 10);
     const candidateLimit = Number.isInteger(requestedLimit)
       ? Math.max(1, Math.min(requestedLimit, config.maxCandidates))
       : config.maxCandidates;
-    const requestedWindow = Number.parseInt(request.query?.window, 10);
+    const requestedWindow = Number.parseInt(input.window, 10);
     const sourceWindow = Number.isInteger(requestedWindow)
       ? Math.max(0, requestedWindow)
       : Math.floor(Date.now() / 86400000);
@@ -64,7 +68,7 @@ export default async function handler(request, response) {
     if (brandEligibleCandidates.length === 0) {
       throw new Error('Every scraped candidate was excluded as a Walmart private-label brand');
     }
-    const candidates = request.query?.refresh === 'true'
+    const candidates = input.refresh === true || input.refresh === 'true'
       ? brandEligibleCandidates
       : await filterRecentlyAnalyzedCandidates(brandEligibleCandidates);
     const skippedRecentlyAnalyzed = brandEligibleCandidates.length - candidates.length;
@@ -100,6 +104,7 @@ export default async function handler(request, response) {
       sourceWindow,
       sourceUrl: sourceUrls[0],
       sourcePages: sourceUrls.length,
+      continuationRunsRemaining: Math.max(0, Number.parseInt(input.continuationRunsRemaining, 10) || 0),
       staged: true,
       totalChunks: chunks.length,
       targetDealsPerStudent: config.targetDealsPerStudent,
@@ -149,7 +154,9 @@ export default async function handler(request, response) {
         config.keepaTokensPerCandidate,
         initialDelaySeconds,
       ) / 60),
-      targetUniqueDeals: students.length * config.targetDealsPerStudent,
+      targetUniqueDeals: config.deliverAllQualified
+        ? candidates.length
+        : students.length * config.targetDealsPerStudent,
     });
   } catch (error) {
     console.error(JSON.stringify({ event: 'cron_failed', message: error.message }));
