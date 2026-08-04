@@ -84,6 +84,8 @@ test('rotates distinct Walmart feeds before moving deeper', () => {
   assert.match(walmartUrlsForWindow(2)[0], /\/shop\/deals\/new-deals/);
   assert.match(walmartUrlsForWindow(3)[0], /\/shop\/deals\/trending/);
   assert.match(fifth[0], /clearance\+toys/);
+  assert.equal(fifth.length, 1);
+  assert.equal(fifth[0].includes('page='), false);
   assert.match(twentieth[0], /page=7/);
   for (const url of [...first, ...second]) assert.match(url, /retailer_type%3AWalmart/);
 });
