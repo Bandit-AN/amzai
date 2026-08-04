@@ -123,6 +123,7 @@ test('globally blocks restricted national brands before downstream analysis', ()
   assert.equal(isExcludedWalmartBrand({ title: 'LEGO Creator Building Set' }), true);
   assert.equal(isExcludedWalmartBrand({ title: 'Barbie Fashionistas Doll' }), true);
   assert.equal(isExcludedWalmartBrand({ title: 'Monster High Clawdeen Wolf Doll' }), true);
+  assert.equal(isExcludedWalmartBrand({ title: 'Apple USB-C to Lightning Cable' }), true);
 });
 
 test('identifies variation-heavy apparel for risk labeling', () => {
@@ -242,6 +243,25 @@ test('rejects conflicting colors and product versions', () => {
   ), true);
 });
 
+test('rejects mismatched condition, flavor style, and one-sided model numbers', () => {
+  assert.equal(listingVariantsCompatible(
+    'Titleist Pro V1 Mint Quality Golf Balls',
+    'Titleist Pro V1 Yellow Golf Balls',
+  ), false);
+  assert.equal(listingVariantsCompatible(
+    'Gel Max Flavor Fusion Warheads Watermelon Youth',
+    'Gel Max Flavor Fusion ICEE Drip Youth',
+  ), false);
+  assert.equal(listingVariantsCompatible(
+    'Logitech Wireless Keyboard and Mouse Combo',
+    'Logitech MK345 Wireless Keyboard and Mouse Combo',
+  ), false);
+  assert.equal(listingVariantsCompatible(
+    'Logitech Silent Wireless Mouse Blue',
+    'Logitech M550 Wireless Mouse Blue',
+  ), false);
+});
+
 test('rejects a movie matched to playback hardware', () => {
   assert.equal(productFormsCompatible(
     'The Shallows 4K Ultra HD + Blu-ray Movie',
@@ -346,6 +366,15 @@ test('allocation enforces the global 60 percent ROI floor', () => {
     { asin: 'PASS', brand: 'Acme', currentPrice: 10, roi: 60, estimatedMonthlySales: 500 },
   ], students, 10, 'run-roi');
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PASS']);
+});
+
+test('allocation rejects deals with non-positive estimated net profit', () => {
+  const students = [{ id: 'a', minRoi: 60, minMonthlySales: 200, maxCost: 100, excludedBrands: [] }];
+  const assignments = allocateDeals([
+    { asin: 'LOSS', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: -0.01, estimatedMonthlySales: 500 },
+    { asin: 'PROFIT', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: 0.01, estimatedMonthlySales: 500 },
+  ], students, 10, 'run-profit');
+  assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PROFIT']);
 });
 
 test('Discord cards include the mandatory manual IP warning', () => {
