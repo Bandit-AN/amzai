@@ -97,11 +97,11 @@ Qualified-deal ranking caps the benefit of gross spread at 75%, so implausible 2
 
 Walmart runs rotate through retailer-filtered Savings, Clearance, New Deals, Trending Deals, broad OA category searches, and targeted searches for historically useful brands/products before moving deeper within a source. Only one six-page source window is scraped per run, keeping ScrapingBee usage bounded while reducing repeated inventory.
 
-`WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. It saves downstream usage, though the source pages must still be downloaded by the scraper.
+`WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. `BLOCKED_BRANDS` applies the same early exclusion to restricted national brands and defaults to LEGO. These filters save downstream usage, though the source pages must still be downloaded by the scraper.
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 
-The finalizer deduplicates by ASIN, ranks qualified deals, rotates the student order deterministically per run, and assigns every deal to at most one student. Student ROI, sales, maximum-cost, and excluded-brand preferences are enforced during allocation. If fewer deals qualify, students receive fewer than 10.
+The finalizer deduplicates by ASIN, ranks qualified deals, rotates the student order deterministically per run, and assigns every deal to at most one student. Student ROI, sales, maximum-cost, and excluded-brand preferences are enforced during allocation. `TARGET_DEALS_PER_STUDENT` caps each student's assignment and defaults to 10. Discord delivery automatically splits larger assignments into confirmed messages of at most four product embeds.
 
 ## Run locally
 
