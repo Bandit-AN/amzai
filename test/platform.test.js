@@ -14,6 +14,7 @@ const {
   candidatePriority,
   calculateDeal,
   discordPayload,
+  discordPayloads,
   emptyDiscordPayload,
   extractListingQuantities,
   hashStudentPassword,
@@ -328,6 +329,16 @@ test('Discord cards include the mandatory manual IP warning', () => {
     amazonPrice: 30, estimatedProfit: 10, roi: 100, estimatedMonthlySales: 500,
   }]);
   assert.match(payload.embeds[0].fields.at(-1).value, /not verified by Keepa/i);
+});
+
+test('Discord delivery splits ten deals into bounded messages', () => {
+  const deal = {
+    amazonTitle: 'Example', amazonUrl: 'https://amazon.com/dp/example', currentPrice: 10,
+    amazonPrice: 20, roi: 100, estimatedProfit: 4, estimatedMonthlySales: 300,
+    asin: 'EXAMPLE', walmartUrl: 'https://walmart.com/ip/example', imageUrl: '',
+  };
+  const payloads = discordPayloads({ name: 'Student' }, Array.from({ length: 10 }, () => deal));
+  assert.deepEqual(payloads.map((payload) => payload.embeds.length), [4, 4, 2]);
 });
 
 test('zero-deal Discord message reports analysis errors', () => {
