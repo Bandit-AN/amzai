@@ -99,7 +99,8 @@ export default async function handler(request, response) {
     const analyzedCandidates = [];
     const errors = [];
     for (const candidate of candidates) {
-      if (await redis.get(`catalog:seen:${candidateFingerprint(candidate)}`)) {
+      const meta = await redis.get(`run:${runId}:meta`);
+      if (!meta?.refresh && await redis.get(`catalog:seen:${candidateFingerprint(candidate)}`)) {
         skippedRecentlyAnalyzed += 1;
         continue;
       }

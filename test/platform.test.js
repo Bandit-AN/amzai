@@ -190,6 +190,15 @@ test('accepts equivalent units and rejects different package sizes', () => {
   assert.equal(listingQuantitiesCompatible('Markers 3 Pack', 'Markers Pack of 3').compatible, true);
 });
 
+test('recognizes retailer multiplier notation as an outer pack count', () => {
+  const result = listingQuantitiesCompatible(
+    'Reveal Wet Cat Food Variety in Broth 12 x 2.47oz Cans',
+    'Reveal Wet Cat Food 12-Pack 2.47 oz Cans',
+  );
+  assert.equal(result.compatible, true);
+  assert.deepEqual(result.walmart.outer_count, [12]);
+});
+
 test('rejects a single cleaner matched to a multi-size Amazon bundle', () => {
   assert.equal(listingQuantitiesCompatible(
     'Weiman Daily Cooktop Cleaner Spray, 12 fl oz',

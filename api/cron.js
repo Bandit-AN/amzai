@@ -107,6 +107,7 @@ export default async function handler(request, response) {
       sourceWindow,
       sourceUrl: sourceUrls[0],
       sourcePages: sourceUrls.length,
+      refresh: input.refresh === true || input.refresh === 'true',
       continuationRunsRemaining: Math.max(0, Number.parseInt(input.continuationRunsRemaining, 10) || 0),
       staged: true,
       totalChunks: chunks.length,
