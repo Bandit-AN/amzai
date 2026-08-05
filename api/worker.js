@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 import {
+  confirmWalmartAvailability,
   config,
   discordPayloads,
   emptyDiscordPayload,
@@ -46,9 +47,28 @@ export default async function handler(request, response) {
     const student = meta?.students?.find((item) => item.id === studentId);
     if (!student || !Array.isArray(deals)) throw new Error('Student or assignment was not found');
 
-    const errors = deals.length === 0 ? await redis.lrange(`run:${runId}:errors`, 0, -1) : [];
-    const payloads = deals.length > 0
-      ? discordPayloads(student, deals)
+    const availabilityChecks = await Promise.all(deals.map(async (deal) => {
+      try {
+        return { deal, available: await confirmWalmartAvailability(deal) };
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: 'walmart_availability_check_failed', runId, studentId,
+          itemId: deal.itemId, message: error.message,
+        }));
+        return { deal, available: false };
+      }
+    }));
+    const deliverableDeals = availabilityChecks.filter((result) => result.available)
+      .map((result) => result.deal);
+    const unavailableDeals = availabilityChecks.filter((result) => !result.available)
+      .map((result) => ({ itemId: result.deal.itemId, title: result.deal.title }));
+    if (unavailableDeals.length) {
+      await redis.set(`run:${runId}:unavailable:${studentId}`, unavailableDeals, { ex: config.runTtlSeconds });
+    }
+
+    const errors = deliverableDeals.length === 0 ? await redis.lrange(`run:${runId}:errors`, 0, -1) : [];
+    const payloads = deliverableDeals.length > 0
+      ? discordPayloads(student, deliverableDeals)
       : [emptyDiscordPayload(student, { candidateCount: meta.candidateCount, failedCandidates: errors.length })];
     const webhook = new URL(student.discordWebhookUrl);
     webhook.searchParams.set('wait', 'true');
@@ -57,14 +77,17 @@ export default async function handler(request, response) {
     }
     await Promise.all([
       redis.set(`run:${runId}:delivered:${studentId}`, true, { ex: config.runTtlSeconds }),
-      ...deals.map((deal) => redis.set(
+      ...deliverableDeals.map((deal) => redis.set(
         `catalog:delivered-asin:${deal.asin}`,
         true,
         { ex: config.productCooldownSeconds },
       )),
     ]);
     await redis.del(lockKey());
-    return jsonResponse(response, 200, { ok: true, runId, studentId, delivered: deals.length });
+    return jsonResponse(response, 200, {
+      ok: true, runId, studentId, delivered: deliverableDeals.length,
+      suppressedUnavailable: unavailableDeals.length,
+    });
   } catch (error) {
     if (runId && studentId) await redis.del(lockKey()).catch(() => {});
     console.error(JSON.stringify({ event: 'delivery_failed', runId, studentId, message: error.message }));

@@ -157,6 +157,13 @@ test('identifies variation-heavy apparel for risk labeling', () => {
   assert.equal(isExcludedProductType('Tide Laundry Detergent Pods'), false);
 });
 
+test('rejects conflicting apparel construction styles', () => {
+  assert.equal(listingVariantsCompatible(
+    'Hanes Underwear Boxer Briefs 3-Pack Comfort Flex Fit Stretch Mesh',
+    'Hanes Underwear Boxer Briefs 3-Pack Comfort Flex Fit Total Support Pouch',
+  ), false);
+});
+
 test('does not concatenate repeated Walmart price text', () => {
   const products = normalizeWalmartPayload({ items: [
     {
