@@ -77,12 +77,22 @@ test('drops explicitly unavailable Walmart products', () => {
   }] }), []);
 });
 
-test('enriches shortened Walmart titles from canonical URL slugs', () => {
+test('keeps visible Walmart title authoritative and stores URL slug as search context', () => {
   const [product] = normalizeWalmartPayload({ items: [{
     name: 'Nursery Center Playard with Animal Toys, Grey', price: 59.84,
     url: '/ip/Baby-Trend-Nursery-Center-Playard-Animal-Jubilee-Grey-Infant/507100242',
   }] });
-  assert.match(product.title, /Baby Trend.*Animal Jubilee/i);
+  assert.equal(product.title, 'Nursery Center Playard with Animal Toys, Grey');
+  assert.match(product.searchTitle, /Baby Trend.*Animal Jubilee/i);
+});
+
+test('does not inject URL slug numbers into quantity matching', () => {
+  const [product] = normalizeWalmartPayload({ items: [{
+    name: 'Bertolli Extra Virgin Olive Oil, 25.4 fl oz', price: 8,
+    url: '/ip/Bertolli-Extra-Virgin-Olive-Oil-25-4-fl-oz/123456',
+  }] });
+  assert.deepEqual(extractListingQuantities(product.title).size_oz, [25.4]);
+  assert.equal(product.title, 'Bertolli Extra Virgin Olive Oil, 25.4 fl oz');
 });
 
 test('rotates distinct Walmart feeds before moving deeper', () => {
@@ -275,10 +285,10 @@ test('rejects conflicting colors and product versions', () => {
   ), true);
 });
 
-test('rejects mismatched condition, flavor style, and one-sided model numbers', () => {
+test('rejects explicit condition and flavor conflicts but treats one-sided model data as unknown', () => {
   assert.equal(listingVariantsCompatible(
     'Titleist Pro V1 Mint Quality Golf Balls',
-    'Titleist Pro V1 Yellow Golf Balls',
+    'Titleist Pro V1 Used Quality Golf Balls',
   ), false);
   assert.equal(listingVariantsCompatible(
     'Gel Max Flavor Fusion Warheads Watermelon Youth',
@@ -287,10 +297,14 @@ test('rejects mismatched condition, flavor style, and one-sided model numbers', 
   assert.equal(listingVariantsCompatible(
     'Logitech Wireless Keyboard and Mouse Combo',
     'Logitech MK345 Wireless Keyboard and Mouse Combo',
-  ), false);
+  ), true);
   assert.equal(listingVariantsCompatible(
     'Logitech Silent Wireless Mouse Blue',
     'Logitech M550 Wireless Mouse Blue',
+  ), true);
+  assert.equal(listingVariantsCompatible(
+    'Logitech MK345 Wireless Keyboard and Mouse Combo',
+    'Logitech MK545 Wireless Keyboard and Mouse Combo',
   ), false);
 });
 

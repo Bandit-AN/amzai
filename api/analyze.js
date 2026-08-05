@@ -113,6 +113,7 @@ export default async function handler(request, response) {
             chunkIndex,
             title: candidate.title,
             reason: result.rejection || 'other',
+            diagnostics: result.diagnostics || [],
           });
         }
       } catch (error) {
