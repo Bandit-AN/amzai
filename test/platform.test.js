@@ -420,6 +420,17 @@ test('allocation requires estimated net profit strictly above one dollar', () =>
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PROFIT']);
 });
 
+test('allocation revalidates exact listing identity before delivery', () => {
+  const students = [{ id: 'a', minRoi: 60, minMonthlySales: 200, maxCost: 100, excludedBrands: [] }];
+  const assignments = allocateDeals([{
+    asin: 'WRONG', brand: 'Baby Trend', currentPrice: 50, roi: 100,
+    estimatedProfit: 10, estimatedMonthlySales: 500,
+    title: 'Baby Trend Nursery Center Playard Animal Jubilee Grey Infant',
+    amazonTitle: 'Baby Trend Retreat Nursery Center Playard Bassinet Storage Robin',
+  }], students, 10, 'run-revalidate');
+  assert.deepEqual(assignments.a, []);
+});
+
 test('Discord cards include the mandatory manual IP warning', () => {
   const payload = discordPayload({ name: 'Student' }, [{
     amazonTitle: 'Widget', amazonUrl: 'https://amazon.com/dp/B012345678',
