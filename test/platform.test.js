@@ -290,6 +290,14 @@ test('accepts normalized matching brands with meaningful title overlap', () => {
   ), true);
 });
 
+test('canonical English identity can match a localized Walmart title safely', () => {
+  const localized = 'Versace Eros Eau de Toilette, Colonia para Hombre, 3.4 fl oz';
+  const canonical = 'Versace Eros Eau de Toilette Cologne for Men 3.4 fl oz';
+  const amazon = 'Versace Eros Eau de Toilette for Men 3.4 Fl Oz';
+  assert.equal(productIdentityCompatible(canonical, amazon, 'Versace', 'Versace'), true);
+  assert.equal(listingQuantitiesCompatible(localized, amazon).compatible, true);
+});
+
 test('rejects related products with different named models and styles', () => {
   assert.equal(productIdentityCompatible(
     'Baby Trend Nursery Center Playard Animal Jubilee Grey Infant',
