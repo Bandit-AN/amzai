@@ -85,13 +85,13 @@ openssl rand -hex 32
 
 ## Qualification and allocation
 
-The platform screens for ROI ≥ 50% and estimated monthly sales ≥ 200 by default. Estimated profit subtracts Walmart cost, Keepa's available FBA pick/pack fee, referral percentage, and `PER_ITEM_FEE_BUFFER`. These are estimates, not purchase advice.
+The platform screens for gross price spread ≥ 60% and estimated monthly sales ≥ 200 by default. Estimated profit subtracts Walmart cost, Keepa's available FBA pick/pack fee, referral percentage, and `PER_ITEM_FEE_BUFFER`, and must be greater than $1 by default. These are estimates, not purchase advice.
 
 Before calculating ROI, explicit count, pack, weight, and volume values in the Walmart and Amazon titles must agree. Known mismatches such as Walmart `32 Count` versus Amazon `96 ct` are rejected. Products whose titles omit comparable quantity information still require manual listing verification.
 
 Completed Walmart item/title/price combinations are cached for seven days, so unchanged listings do not repeatedly consume Gemini and Keepa. A price or title change produces a new fingerprint and is eligible immediately. Successfully delivered Amazon ASINs are also suppressed for seven days across runs.
 
-Candidates are ranked before Keepa using available clearance discount, UPC/GTIN presence, explicit quantity information, practical OA price bands, and category heuristics. Variation-heavy, oversized, and perishable listings are deprioritized. The mandatory ROI threshold is at least 60% gross Amazon-versus-Walmart price spread before fees; Airtable may raise but cannot lower it. Estimated net profit after available Keepa fees and the configured buffer must also be greater than $0. Keepa work is released in waves; if strict allocation can already fill every active student's target, later waves are not published.
+Candidates are ranked before Keepa using available clearance discount, UPC/GTIN presence, explicit quantity information, practical OA price bands, and category heuristics. Variation-heavy, oversized, and perishable listings are deprioritized. The mandatory ROI threshold is at least 60% gross Amazon-versus-Walmart price spread before fees; Airtable may raise but cannot lower it. Estimated net profit after available Keepa fees and the configured buffer must also be strictly greater than `MINIMUM_ESTIMATED_PROFIT`, which defaults to $1. Keepa work is released in waves; if strict allocation can already fill every active student's target, later waves are not published.
 
 Qualified-deal ranking caps the benefit of gross spread at 75%, so implausible 200%–300% spreads cannot dominate solid products near the 50% threshold. Sales velocity remains part of ranking. Fragrance products are currently excluded because ounce variants are frequently ambiguous across retailer cards.
 

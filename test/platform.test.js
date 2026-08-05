@@ -270,6 +270,17 @@ test('rejects mismatched condition, flavor style, and one-sided model numbers', 
   ), false);
 });
 
+test('rejects mismatched named product sizes', () => {
+  assert.equal(listingVariantsCompatible(
+    'Nylabone Power Chew Original Bone, Medium, 1 Count',
+    'Nylabone Power Chew Textured Bone, X-Large',
+  ), false);
+  assert.equal(listingVariantsCompatible(
+    'Nylabone Power Chew Original Bone, Medium',
+    'Nylabone Power Chew Original Textured Bone, Medium',
+  ), true);
+});
+
 test('rejects a movie matched to playback hardware', () => {
   assert.equal(productFormsCompatible(
     'The Shallows 4K Ultra HD + Blu-ray Movie',
@@ -376,11 +387,11 @@ test('allocation enforces the global 60 percent ROI floor', () => {
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PASS']);
 });
 
-test('allocation rejects deals with non-positive estimated net profit', () => {
+test('allocation requires estimated net profit strictly above one dollar', () => {
   const students = [{ id: 'a', minRoi: 60, minMonthlySales: 200, maxCost: 100, excludedBrands: [] }];
   const assignments = allocateDeals([
-    { asin: 'LOSS', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: -0.01, estimatedMonthlySales: 500 },
-    { asin: 'PROFIT', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: 0.01, estimatedMonthlySales: 500 },
+    { asin: 'LOSS', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: 1, estimatedMonthlySales: 500 },
+    { asin: 'PROFIT', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: 1.01, estimatedMonthlySales: 500 },
   ], students, 10, 'run-profit');
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PROFIT']);
 });
