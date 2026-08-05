@@ -70,6 +70,21 @@ test('preserves Walmart original price and UPC when present', () => {
   assert.equal(product.upc, '001234567890');
 });
 
+test('drops explicitly unavailable Walmart products', () => {
+  assert.deepEqual(normalizeWalmartPayload({ items: [{
+    name: 'Unavailable Widget', price: 10, availabilityStatus: 'Out of stock',
+    url: '/ip/unavailable-widget/12345',
+  }] }), []);
+});
+
+test('enriches shortened Walmart titles from canonical URL slugs', () => {
+  const [product] = normalizeWalmartPayload({ items: [{
+    name: 'Nursery Center Playard with Animal Toys, Grey', price: 59.84,
+    url: '/ip/Baby-Trend-Nursery-Center-Playard-Animal-Jubilee-Grey-Infant/507100242',
+  }] });
+  assert.match(product.title, /Baby Trend.*Animal Jubilee/i);
+});
+
 test('rotates distinct Walmart feeds before moving deeper', () => {
   const first = walmartUrlsForWindow(0);
   const second = walmartUrlsForWindow(1);
@@ -238,6 +253,15 @@ test('accepts normalized matching brands with meaningful title overlap', () => {
     'Coca-Cola',
     'Coca Cola',
   ), true);
+});
+
+test('rejects related products with different named models and styles', () => {
+  assert.equal(productIdentityCompatible(
+    'Baby Trend Nursery Center Playard Animal Jubilee Grey Infant',
+    'Baby Trend Retreat Nursery Center Playard Bassinet Storage Robin',
+    'Baby Trend',
+    'Baby Trend',
+  ), false);
 });
 
 test('rejects conflicting colors and product versions', () => {
