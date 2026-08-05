@@ -97,7 +97,7 @@ Qualified-deal ranking caps the benefit of gross spread at 75%, so implausible 2
 
 Walmart runs rotate through retailer-filtered Savings, Clearance, New Deals, Trending Deals, broad OA category searches, and targeted searches for historically useful brands/products before moving deeper within a source. Only one six-page source window is scraped per run, keeping ScrapingBee usage bounded while reducing repeated inventory.
 
-`WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. `BLOCKED_BRANDS` applies the same early exclusion to restricted national brands. LEGO, Barbie, Monster High, and Apple are always blocked; configured values extend that list. These filters save downstream usage, though the source pages must still be downloaded by the scraper.
+`WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. `BLOCKED_BRANDS` applies the same early exclusion to restricted national brands. LEGO, Barbie, Monster High, Apple, and Bissell are always blocked; configured values extend that list. These filters save downstream usage, though the source pages must still be downloaded by the scraper.
 
 When `SCRAPERAPI_KEY` is configured, Walmart pages use ScraperAPI with US routing. Walmart's embedded product JSON currently works without browser rendering, so `SCRAPERAPI_RENDER_JS=false` is the faster, lower-credit default. ScrapingBee remains a compatibility fallback when its key is also present.
 

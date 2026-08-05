@@ -124,6 +124,7 @@ test('globally blocks restricted national brands before downstream analysis', ()
   assert.equal(isExcludedWalmartBrand({ title: 'Barbie Fashionistas Doll' }), true);
   assert.equal(isExcludedWalmartBrand({ title: 'Monster High Clawdeen Wolf Doll' }), true);
   assert.equal(isExcludedWalmartBrand({ title: 'Apple USB-C to Lightning Cable' }), true);
+  assert.equal(isExcludedWalmartBrand({ title: 'BISSELL CrossWave Floor Cleaner' }), true);
 });
 
 test('identifies variation-heavy apparel for risk labeling', () => {
@@ -162,6 +163,13 @@ test('accepts equivalent units and rejects different package sizes', () => {
   assert.equal(listingQuantitiesCompatible('Dog Food 2 lb Bag', 'Dog Food, 32 oz').compatible, true);
   assert.equal(listingQuantitiesCompatible('Shampoo 12 fl oz', 'Shampoo 24 fluid ounces').compatible, false);
   assert.equal(listingQuantitiesCompatible('Markers 3 Pack', 'Markers Pack of 3').compatible, true);
+});
+
+test('rejects a single cleaner matched to a multi-size Amazon bundle', () => {
+  assert.equal(listingQuantitiesCompatible(
+    'Weiman Daily Cooktop Cleaner Spray, 12 fl oz',
+    'Weiman Cooktop Cleaner 10 Ounce and Daily Cleaner 12 Ounce Bundle',
+  ).compatible, false);
 });
 
 test('rejects mismatched outer packs even when inner sheet counts match', () => {
