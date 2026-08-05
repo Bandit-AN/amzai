@@ -184,6 +184,15 @@ test('rejects Amazon listings with a different item count', () => {
   assert.equal(result.category, 'outer_count');
 });
 
+test('rejects products with explicitly different voltage', () => {
+  const result = listingQuantitiesCompatible(
+    'Peg Perego John Deere Mini Tractor 6 Volt Ride on Toy',
+    'Peg Perego John Deere Ground Force 12 volt Ride-On Tractor',
+  );
+  assert.equal(result.compatible, false);
+  assert.equal(result.category, 'voltage_v');
+});
+
 test('accepts equivalent units and rejects different package sizes', () => {
   assert.equal(listingQuantitiesCompatible('Dog Food 2 lb Bag', 'Dog Food, 32 oz').compatible, true);
   assert.equal(listingQuantitiesCompatible('Shampoo 12 fl oz', 'Shampoo 24 fluid ounces').compatible, false);
@@ -281,6 +290,12 @@ test('rejects related products with different named models and styles', () => {
     'Baby Trend',
     'Baby Trend',
   ), false);
+  assert.equal(productIdentityCompatible(
+    'Schylling NeeDoh Nice Cream Cone Sensory Squeeze Toy Colors May Vary',
+    'Schylling NeeDoh Gumdrop Textured Sensory Toy Colors May Vary',
+    'Schylling',
+    'Schylling',
+  ), false);
 });
 
 test('rejects conflicting colors and product versions', () => {
@@ -326,6 +341,10 @@ test('rejects mismatched named product sizes', () => {
     'Nylabone Power Chew Original Bone, Medium',
     'Nylabone Power Chew Original Textured Bone, Medium',
   ), true);
+  assert.equal(listingVariantsCompatible(
+    'Peg Perego John Deere Mini Tractor 6 Volt Ride on Toy',
+    'Peg Perego John Deere Ground Force Extra-Large 12 volt Ride-On Tractor',
+  ), false);
 });
 
 test('rejects a movie matched to playback hardware', () => {
