@@ -435,7 +435,8 @@ button:disabled {
 .review-row:last-child {
   border-bottom: 0;
 }
-.review-row a {
+.review-row a,
+.review-row > span {
   display: block;
   color: #dce6ef;
   font-size: 11px;

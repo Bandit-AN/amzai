@@ -102,6 +102,9 @@ function renderRuns(runs) {
       <div><b>Walmart · $${Number(item.walmartPrice).toFixed(2)}</b><a href="${escapeHtml(item.walmartUrl)}" target="_blank" rel="noreferrer">${escapeHtml(item.walmartTitle)}</a><small>UPC ${escapeHtml(item.upc)} · Variant ${escapeHtml(item.variantId)}</small></div>
       <div><b>Amazon · $${Number(item.amazonPrice).toFixed(2)}</b><a href="${escapeHtml(item.amazonUrl)}" target="_blank" rel="noreferrer">${escapeHtml(item.amazonTitle)}</a><small>${Number(item.roi).toFixed(1)}% gross spread · $${Number(item.estimatedProfit).toFixed(2)} est. net · ${Math.round(Number(item.estimatedMonthlySales)).toLocaleString('en-US')} sales</small></div>
     </div>`).join('');
+    const errorRows = (run.errorDetails || []).map((item) => `<div class="review-row">
+      <span>${escapeHtml(item.title)}</span><small>Chunk ${escapeHtml(item.chunkIndex ?? 'unknown')} · ${escapeHtml(item.message)}</small>
+    </div>`).join('');
     return `<div class="run-card">
       <div class="run-top"><div><div class="run-id">${escapeHtml(run.runId)}</div><span class="metric-detail">${formatDate(run.createdAt)}</span></div><span class="status ${['finalized','cancelled','awaiting_audit'].includes(run.status) ? run.status : ''}">${escapeHtml(run.status.replaceAll('_', ' '))}</span></div>
       <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
@@ -111,6 +114,7 @@ function renderRuns(runs) {
       ${rejectionSummary ? `<div class="metric-detail">Rejected: ${escapeHtml(rejectionSummary)}</div>` : ''}
       ${auditRows ? `<details class="run-details" ${run.auditMode ? 'open' : ''}><summary>${run.auditMode ? 'Audit exact qualified identities' : 'View qualified identities'} (${run.qualifiedReview.length})</summary>${auditRows}</details>` : ''}
       ${manualRows ? `<details class="run-details"><summary>Manual-review queue (${run.manualReview.length}${Number(funnel.manualReview) > run.manualReview.length ? '+' : ''})</summary>${manualRows}</details>` : ''}
+      ${errorRows ? `<details class="run-details"><summary>Processing errors (${run.errorDetails.length})</summary>${errorRows}</details>` : ''}
       ${comparisonRows ? `<details class="run-details"><summary>Rejection identity comparisons</summary>${comparisonRows}</details>` : ''}
     </div>`;
   }).join('');
