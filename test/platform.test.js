@@ -30,6 +30,7 @@ const {
   productIdentityCompatible,
   productCodesCompatible,
   productFormsCompatible,
+  sanitizedRetryError,
   verifyStudentPassword,
   walmartSourceUrls,
   walmartUrlsForWindow,
@@ -500,6 +501,18 @@ test('classifies provider throttling and temporary failures as retryable', () =>
   assert.equal(isRetryableProviderError({ response: { status: 429 } }), true);
   assert.equal(isRetryableProviderError({ response: { status: 503 } }), true);
   assert.equal(isRetryableProviderError({ response: { status: 400 } }), false);
+  assert.equal(isRetryableProviderError({ code: 'ECONNABORTED' }), true);
+});
+
+test('sanitizes retryable provider failures before they reach Vercel logs', () => {
+  const original = {
+    message: 'https://provider.test/?api_key=secret', code: 'ECONNABORTED',
+    response: { status: 429, config: { params: { api_key: 'secret' } } },
+  };
+  const sanitized = sanitizedRetryError(original, 'Walmart detail lookup');
+  assert.equal(sanitized.message, 'Walmart detail lookup temporarily failed (429)');
+  assert.deepEqual(sanitized.response, { status: 429 });
+  assert.equal(JSON.stringify(sanitized).includes('secret'), false);
 });
 
 test('calculates estimated profit and flags policy status as unverified', () => {

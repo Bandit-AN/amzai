@@ -11,6 +11,7 @@ import {
   readJsonBody,
   redis,
   requireEnvironment,
+  sanitizedRetryError,
   workerAuthorized,
 } from '../lib/platform.js';
 
@@ -138,7 +139,7 @@ export default async function handler(request, response) {
     );
     return jsonResponse(response, 202, { ok: true, runId, chunkIndex, queuedForAnalysis: true });
   } catch (error) {
-    if (isRetryableProviderError(error)) throw error;
+    if (isRetryableProviderError(error)) throw sanitizedRetryError(error, 'Walmart detail lookup');
     console.error(JSON.stringify({ event: 'enrichment_failed', runId, chunkIndex, message: error.message }));
     if (runId && Number.isInteger(chunkIndex) && candidate && meta) {
       try {

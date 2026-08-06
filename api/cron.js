@@ -137,7 +137,7 @@ export default async function handler(request, response) {
       deduplicationId: `${runId}-enrich-${chunkIndex}`,
       // Avoid bursting 50 simultaneous detail-page requests into a scraper's
       // small prototype concurrency allowance.
-      delaySeconds: chunkIndex,
+      delaySeconds: chunkIndex * 10,
     })));
     console.log(JSON.stringify({ event: 'run_queued', runId, students: students.length, candidates: candidates.length, chunks: chunks.length }));
     return jsonResponse(response, 202, {
