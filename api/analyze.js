@@ -1,14 +1,10 @@
 import {
-  allocateDeals,
-  analysisDelaySeconds,
   analyzeCandidate,
-  candidateFingerprint,
   config,
   isRetryableProviderError,
   jsonResponse,
   markCandidatesAnalyzed,
   publishMessage,
-  publishBatch,
   readJsonBody,
   redis,
   requireEnvironment,
@@ -25,47 +21,6 @@ async function advanceRun(runId, completedChunks, meta) {
   if (!meta || !completedChunks) return;
   if (completedChunks >= meta.totalChunks) {
     await publishMessage(finalizeJob(runId));
-    return;
-  }
-  if (!meta.staged) return;
-  if (completedChunks % config.analysisBatchSize !== 0) return;
-
-  const waveLockKey = `run:${runId}:wave:${completedChunks}`;
-  const waveLocked = await redis.set(waveLockKey, true, { nx: true, ex: 300 });
-  if (!waveLocked) return;
-  try {
-    const qualifiedDeals = await redis.lrange(`run:${runId}:qualified`, 0, -1);
-    const previousDelivery = await redis.mget(
-      qualifiedDeals.map((deal) => `catalog:delivered-asin:${deal.asin}`),
-    );
-    const freshDeals = qualifiedDeals.filter((_, index) => !previousDelivery[index]);
-    const assignments = allocateDeals(freshDeals, meta.students, meta.targetDealsPerStudent, runId);
-    const allSlotsFilled = meta.students.every(
-      (student) => assignments[student.id]?.length >= meta.targetDealsPerStudent,
-    );
-    if (allSlotsFilled) {
-      const stoppedMeta = { ...meta, totalChunks: completedChunks, stoppedEarly: true };
-      await redis.set(`run:${runId}:meta`, stoppedMeta, { ex: config.runTtlSeconds });
-      await publishMessage(finalizeJob(runId));
-      return;
-    }
-
-    const nextEnd = Math.min(completedChunks + config.analysisBatchSize, meta.totalChunks);
-    await publishBatch(Array.from({ length: nextEnd - completedChunks }, (_, localIndex) => {
-      const nextChunkIndex = completedChunks + localIndex;
-      return {
-        url: `${config.publicBaseUrl}/api/analyze`,
-        body: { runId, chunkIndex: nextChunkIndex },
-        deduplicationId: `${runId}-analyze-${nextChunkIndex}`,
-        delaySeconds: analysisDelaySeconds(
-          localIndex + 1,
-          meta.keepaTokensPerMinute,
-          config.keepaTokensPerCandidate,
-        ),
-      };
-    }));
-  } finally {
-    await redis.del(waveLockKey).catch(() => {});
   }
 }
 
@@ -74,6 +29,7 @@ export default async function handler(request, response) {
   if (!workerAuthorized(request)) return jsonResponse(response, 401, { error: 'Unauthorized' });
   let runId;
   let chunkIndex;
+  const processingKey = () => `run:${runId}:chunk:${chunkIndex}:analysisProcessing`;
   try {
     requireEnvironment(['GEMINI_KEY', 'KEEPA_API_KEY', 'QSTASH_TOKEN', 'PUBLIC_BASE_URL', 'WORKER_SECRET']);
     ({ runId, chunkIndex } = await readJsonBody(request));
@@ -91,23 +47,34 @@ export default async function handler(request, response) {
       await advanceRun(runId, Number(completedChunks || 0), meta);
       return jsonResponse(response, 200, { ok: true, duplicate: true });
     }
-    const candidates = await redis.get(`run:${runId}:chunk:${chunkIndex}`);
-    if (!Array.isArray(candidates)) throw new Error('Analysis chunk was not found or expired');
+    const processing = await redis.set(
+      processingKey(), true,
+      { nx: true, ex: 300 },
+    );
+    if (!processing) {
+      return jsonResponse(response, 409, { ok: false, error: 'Analysis already in progress' });
+    }
+    const candidates = await redis.get(`run:${runId}:detail:${chunkIndex}`);
+    const candidate = candidates && !Array.isArray(candidates) ? candidates : candidates?.[0];
+    if (!candidate) throw new Error('Enriched analysis candidate was not found or expired');
 
     let qualified = 0;
-    let skippedRecentlyAnalyzed = 0;
     const analyzedCandidates = [];
     const errors = [];
-    for (const candidate of candidates) {
-      const meta = await redis.get(`run:${runId}:meta`);
-      if (!meta?.refresh && await redis.get(`catalog:seen:${candidateFingerprint(candidate)}`)) {
-        skippedRecentlyAnalyzed += 1;
-        continue;
-      }
+    {
       try {
         const result = await analyzeCandidate(candidate);
+        if (result.funnel?.exactAmazonMatchFound) {
+          await redis.incr(`run:${runId}:funnel:exactAmazonMatchFound`);
+        }
+        if (result.funnel?.economicsPassed) {
+          await redis.incr(`run:${runId}:funnel:economicsPassed`);
+        }
         if (result.deal) {
-          await redis.rpush(`run:${runId}:qualified`, result.deal);
+          await Promise.all([
+            redis.rpush(`run:${runId}:qualified`, result.deal),
+            redis.incr(`run:${runId}:funnel:stockConfirmed`),
+          ]);
           qualified += 1;
         } else {
           await redis.rpush(`run:${runId}:rejections`, {
@@ -126,9 +93,6 @@ export default async function handler(request, response) {
       analyzedCandidates.push(candidate);
     }
     await markCandidatesAnalyzed(analyzedCandidates);
-    if (skippedRecentlyAnalyzed) {
-      await redis.incr(`run:${runId}:skippedRecentlyAnalyzed`);
-    }
 
     const firstCompletion = await redis.set(completionKey, true, { nx: true, ex: config.runTtlSeconds });
     let completedChunks = null;
@@ -137,16 +101,18 @@ export default async function handler(request, response) {
       const meta = await redis.get(`run:${runId}:meta`);
       await advanceRun(runId, completedChunks, meta);
     }
+    await redis.del(processingKey()).catch(() => {});
     return jsonResponse(response, 200, {
       ok: true,
       runId,
       chunkIndex,
       qualified,
-      skippedRecentlyAnalyzed,
+      skippedRecentlyAnalyzed: 0,
       completedChunks,
       errors,
     });
   } catch (error) {
+    if (runId && Number.isInteger(chunkIndex)) await redis.del(processingKey()).catch(() => {});
     console.error(JSON.stringify({ event: 'analysis_failed', runId, chunkIndex, message: error.message }));
     return jsonResponse(response, 500, { ok: false, error: error.message });
   }

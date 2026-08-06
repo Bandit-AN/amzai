@@ -29,6 +29,19 @@ export default async function handler(request, response) {
     if (!meta) throw new Error('Run metadata was not found or expired');
     const rawDeals = await redis.lrange(`run:${runId}:qualified`, 0, -1);
     const analysisErrors = await redis.lrange(`run:${runId}:errors`, 0, -1);
+    if (meta.auditMode) {
+      await redis.set(`run:${runId}:finalized`, true, { ex: config.runTtlSeconds });
+      await redis.del(lockKey());
+      return jsonResponse(response, 200, {
+        ok: true,
+        runId,
+        auditMode: true,
+        awaitingAudit: rawDeals.length,
+        assigned: 0,
+        studentsReceivingDeals: 0,
+        analysisErrors: analysisErrors.length,
+      });
+    }
     const previousDelivery = await redis.mget(rawDeals.map((deal) => `catalog:delivered-asin:${deal.asin}`));
     const freshDeals = rawDeals.filter((_, index) => !previousDelivery[index]);
     const assignmentLimit = config.deliverAllQualified

@@ -1,8 +1,10 @@
 import axios from 'axios';
 
 import {
+  claimDiscordDelivery,
   confirmWalmartAvailability,
   config,
+  discordDeliveryLockKey,
   discordPayloads,
   emptyDiscordPayload,
   jsonResponse,
@@ -32,18 +34,20 @@ export default async function handler(request, response) {
   let runId;
   let studentId;
   let postedPayloads = 0;
-  const lockKey = () => `run:${runId}:deliveryLock:${studentId}`;
+  const lockKey = () => discordDeliveryLockKey(runId, studentId);
   try {
     ({ runId, studentId } = await readJsonBody(request));
     if (!runId || !studentId) throw new Error('runId and studentId are required');
-    if (await redis.get(`run:${runId}:delivered:${studentId}`)) {
+    const deliveryClaim = await claimDiscordDelivery(redis, runId, studentId);
+    if (deliveryClaim === 'delivered') {
       return jsonResponse(response, 200, { ok: true, duplicate: true });
     }
     // This is an idempotency claim, not merely a short concurrency lock. Keep
     // it for the run lifetime so a QStash/Vercel retry cannot repost a Discord
     // batch after the first request succeeded but the function response was lost.
-    const locked = await redis.set(lockKey(), true, { nx: true, ex: config.runTtlSeconds });
-    if (!locked) return jsonResponse(response, 409, { ok: false, error: 'Delivery already in progress' });
+    if (deliveryClaim !== 'claimed') {
+      return jsonResponse(response, 409, { ok: false, error: 'Delivery already in progress' });
+    }
     const [meta, deals] = await Promise.all([
       redis.get(`run:${runId}:meta`),
       redis.get(`run:${runId}:assignment:${studentId}`),
@@ -82,6 +86,9 @@ export default async function handler(request, response) {
     }
     await Promise.all([
       redis.set(`run:${runId}:delivered:${studentId}`, true, { ex: config.runTtlSeconds }),
+      ...(deliverableDeals.length
+        ? [redis.incrby(`run:${runId}:funnel:automaticDelivered`, deliverableDeals.length)]
+        : []),
       ...deliverableDeals.map((deal) => redis.set(
         `catalog:delivered-asin:${deal.asin}`,
         true,

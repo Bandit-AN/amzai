@@ -10,9 +10,11 @@ globalThis.File ??= class File {};
 const {
   analysisDelaySeconds,
   allocateDeals,
+  automaticEligibilityReason,
   candidateFingerprint,
   candidatePriority,
   calculateDeal,
+  claimDiscordDelivery,
   discordPayload,
   discordPayloads,
   emptyDiscordPayload,
@@ -33,6 +35,15 @@ const {
   walmartUrlsForWindow,
   withinBuyCostLimit,
 } = await import('../lib/platform.js');
+
+const automaticDeal = (overrides = {}) => ({
+  matchMethod: 'UPC',
+  upc: '001234567890',
+  detailVerified: true,
+  onlineAvailable: true,
+  estimatedProfit: 5,
+  ...overrides,
+});
 
 test('student passwords are hashed and verified without storing plaintext', async () => {
   const encoded = await hashStudentPassword('safe-test-password', '00112233445566778899aabbccddeeff');
@@ -70,11 +81,46 @@ test('preserves Walmart original price and UPC when present', () => {
   assert.equal(product.upc, '001234567890');
 });
 
-test('drops explicitly unavailable Walmart products', () => {
-  assert.deepEqual(normalizeWalmartPayload({ items: [{
+test('preserves explicit Walmart unavailability for the review funnel', () => {
+  const [product] = normalizeWalmartPayload({ items: [{
     name: 'Unavailable Widget', price: 10, availabilityStatus: 'Out of stock',
     url: '/ip/unavailable-widget/12345',
-  }] }), []);
+  }] });
+  assert.equal(product.onlineAvailable, false);
+});
+
+test('recognizes schema.org stock states from Walmart detail data', () => {
+  const [available] = normalizeWalmartPayload({ items: [{
+    name: 'Available Widget', price: 10, offers: {
+      availability: 'https://schema.org/InStock', seller: { name: 'Walmart.com' },
+    },
+    url: '/ip/available-widget/11111',
+  }] });
+  const [unavailable] = normalizeWalmartPayload({ items: [{
+    name: 'Unavailable Widget', price: 10,
+    availabilityStatus: 'OUT_OF_STOCK', url: '/ip/unavailable-widget/22222',
+  }] });
+  assert.equal(available.onlineAvailable, true);
+  assert.equal(available.seller, 'Walmart.com');
+  assert.equal(unavailable.onlineAvailable, false);
+});
+
+test('extracts authoritative detail identity and selected variant fields', () => {
+  const [product] = normalizeWalmartPayload({ items: [{
+    name: 'Acme Mixer Model MX500, Red, 120 Volt', price: 49.99,
+    originalPrice: 79.99, upc: '001234567890', usItemId: '24680',
+    brand: { name: 'Acme' }, seller: { displayName: 'Walmart.com' },
+    color: 'Red', size: 'Standard', modelNumber: 'MX500', availabilityStatus: 'IN_STOCK',
+    url: '/ip/acme-mixer/24680',
+  }] });
+  assert.equal(product.upc, '001234567890');
+  assert.equal(product.variantId, '24680');
+  assert.equal(product.brand, 'Acme');
+  assert.equal(product.seller, 'Walmart.com');
+  assert.equal(product.onlineAvailable, true);
+  assert.deepEqual(product.selectedVariant, {
+    size: 'Standard', color: 'Red', model: 'MX500', voltage: 120,
+  });
 });
 
 test('keeps visible Walmart title authoritative and stores URL slug as search context', () => {
@@ -120,7 +166,7 @@ test('includes retailer-filtered sourcing searches without collapsing their quer
   const sources = walmartSourceUrls();
   assert.equal(sources.filter((url) => url.includes('/search?')).length, 15);
   assert.ok(sources.some((url) => url.includes('clearance+video+games')));
-  assert.ok(sources.some((url) => url.includes('Crayola+clearance')));
+  assert.ok(sources.some((url) => url.includes('clearance+office+school+supplies')));
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 
@@ -298,13 +344,22 @@ test('canonical English identity can match a localized Walmart title safely', ()
   assert.equal(listingQuantitiesCompatible(localized, amazon).compatible, true);
 });
 
-test('deterministic identity checks expose why a final exact adjudicator is required', () => {
+test('rejects fragrance flanker conflicts before Gemini adjudication', () => {
   assert.equal(productIdentityCompatible(
     'Jimmy Choo Man Ice Eau de Toilette 3.3 oz',
     'Jimmy Choo Man Intense Eau de Toilette 3.3 oz',
     'Jimmy Choo',
     'Jimmy Choo',
   ), true);
+  assert.equal(listingVariantsCompatible(
+    'Jimmy Choo Man Ice Eau de Toilette 3.3 oz',
+    'Jimmy Choo Man Intense Eau de Toilette 3.3 oz',
+  ), false);
+  assert.equal(listingVariantsCompatible('Jimmy Choo Man Ice', 'Jimmy Choo Man Blue'), false);
+  assert.equal(listingVariantsCompatible('Jimmy Choo Man Ice', 'Jimmy Choo Man Aqua'), false);
+});
+
+test('Fuggler names require UPC identity because title overlap is insufficient', () => {
   assert.equal(productIdentityCompatible(
     'Fuggler Fugglercorns Wrinkle McStinkles 9 Inch Plush',
     'Fuggler Fugglercorns Mr Screech 9 Inch Plush',
@@ -402,6 +457,26 @@ test('requires Walmart UPC to agree with Keepa product codes when available', ()
   assert.equal(productCodesCompatible('001234567890', {
     upcList: ['848061064360'],
   }), false);
+  assert.equal(productCodesCompatible(null, { upcList: ['001234567890'] }), false);
+  assert.equal(productCodesCompatible('001234567890', { upcList: [], eanList: [] }), false);
+});
+
+test('Fuggler UPC can only select the same coded Amazon product', () => {
+  assert.equal(productCodesCompatible('193052099532', {
+    upcList: ['193052099532'], eanList: [],
+  }), true);
+  assert.equal(productCodesCompatible('193052099532', {
+    upcList: ['193052099549'], eanList: [],
+  }), false);
+});
+
+test('routes missing identity, stock, UPC, and variants away from automatic delivery', () => {
+  const base = { title: 'Acme Widget', detailVerified: true, onlineAvailable: true, upc: '123456789012', variantId: '42' };
+  assert.equal(automaticEligibilityReason({ ...base, detailVerified: false }), 'walmart_detail_unverified');
+  assert.equal(automaticEligibilityReason({ ...base, onlineAvailable: false }), 'walmart_unavailable');
+  assert.equal(automaticEligibilityReason({ ...base, upc: null }), 'missing_upc');
+  assert.equal(automaticEligibilityReason({ ...base, title: 'Acme Shirt Size Large', variantId: null }), 'unverified_variant');
+  assert.equal(automaticEligibilityReason(base), null);
 });
 
 test('treats explicit pack size as outer quantity instead of inner count', () => {
@@ -429,11 +504,14 @@ test('classifies provider throttling and temporary failures as retryable', () =>
 
 test('calculates estimated profit and flags policy status as unverified', () => {
   const deal = calculateDeal(
-    { itemId: '1', title: 'Widget', currentPrice: 10, walmartUrl: 'https://walmart.com/ip/1' },
+    {
+      itemId: '1', title: 'Widget', currentPrice: 10,
+      walmartUrl: 'https://walmart.com/ip/1', upc: '001234567890',
+    },
     { brand: 'Acme', cleanSearchTerm: 'Acme Widget', estimatedPackCount: 1 },
     {
       asin: 'B012345678', title: 'Acme Widget', brand: 'Acme', monthlySold: 500,
-      stats: { buyBoxPrice: 3000 },
+      stats: { buyBoxPrice: 3000 }, upcList: ['001234567890'],
       fbaFees: { pickAndPackFee: 400 }, referralFeePercentage: 15,
     },
   );
@@ -449,7 +527,7 @@ test('strict allocation never assigns an ASIN more than once', () => {
     { id: 'a', minRoi: 50, minMonthlySales: 200, maxCost: 100, excludedBrands: [] },
     { id: 'b', minRoi: 50, minMonthlySales: 200, maxCost: 100, excludedBrands: [] },
   ];
-  const deals = Array.from({ length: 8 }, (_, index) => ({
+  const deals = Array.from({ length: 8 }, (_, index) => automaticDeal({
     asin: `B00000000${index}`, itemId: String(index), brand: 'Acme', currentPrice: 10,
     roi: 60 + index, estimatedMonthlySales: 250 + index,
   }));
@@ -467,9 +545,9 @@ test('allocation respects per-student maximum cost and excluded brands', () => {
     { id: 'a', minRoi: 50, minMonthlySales: 200, maxCost: 10, excludedBrands: ['blocked'] },
   ];
   const assignments = allocateDeals([
-    { asin: 'B000000001', brand: 'Blocked', currentPrice: 5, roi: 80, estimatedMonthlySales: 300 },
-    { asin: 'B000000002', brand: 'Acme', currentPrice: 20, roi: 80, estimatedMonthlySales: 300 },
-    { asin: 'B000000003', brand: 'Acme', currentPrice: 8, roi: 80, estimatedMonthlySales: 300 },
+    automaticDeal({ asin: 'B000000001', brand: 'Blocked', currentPrice: 5, roi: 80, estimatedMonthlySales: 300 }),
+    automaticDeal({ asin: 'B000000002', brand: 'Acme', currentPrice: 20, roi: 80, estimatedMonthlySales: 300 }),
+    automaticDeal({ asin: 'B000000003', brand: 'Acme', currentPrice: 8, roi: 80, estimatedMonthlySales: 300 }),
   ], students, 10, 'run-1');
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['B000000003']);
 });
@@ -477,8 +555,8 @@ test('allocation respects per-student maximum cost and excluded brands', () => {
 test('allocation enforces the global 60 percent ROI floor', () => {
   const students = [{ id: 'a', minRoi: 50, minMonthlySales: 200, maxCost: 100, excludedBrands: [] }];
   const assignments = allocateDeals([
-    { asin: 'LOW', brand: 'Acme', currentPrice: 10, roi: 59.9, estimatedMonthlySales: 500 },
-    { asin: 'PASS', brand: 'Acme', currentPrice: 10, roi: 60, estimatedMonthlySales: 500 },
+    automaticDeal({ asin: 'LOW', brand: 'Acme', currentPrice: 10, roi: 59.9, estimatedMonthlySales: 500 }),
+    automaticDeal({ asin: 'PASS', brand: 'Acme', currentPrice: 10, roi: 60, estimatedMonthlySales: 500 }),
   ], students, 10, 'run-roi');
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PASS']);
 });
@@ -486,20 +564,20 @@ test('allocation enforces the global 60 percent ROI floor', () => {
 test('allocation requires estimated net profit strictly above one dollar', () => {
   const students = [{ id: 'a', minRoi: 60, minMonthlySales: 200, maxCost: 100, excludedBrands: [] }];
   const assignments = allocateDeals([
-    { asin: 'LOSS', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: 1, estimatedMonthlySales: 500 },
-    { asin: 'PROFIT', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: 1.01, estimatedMonthlySales: 500 },
+    automaticDeal({ asin: 'LOSS', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: 1, estimatedMonthlySales: 500 }),
+    automaticDeal({ asin: 'PROFIT', brand: 'Acme', currentPrice: 10, roi: 100, estimatedProfit: 1.01, estimatedMonthlySales: 500 }),
   ], students, 10, 'run-profit');
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PROFIT']);
 });
 
 test('allocation revalidates exact listing identity before delivery', () => {
   const students = [{ id: 'a', minRoi: 60, minMonthlySales: 200, maxCost: 100, excludedBrands: [] }];
-  const assignments = allocateDeals([{
+  const assignments = allocateDeals([automaticDeal({
     asin: 'WRONG', brand: 'Baby Trend', currentPrice: 50, roi: 100,
     estimatedProfit: 10, estimatedMonthlySales: 500,
     title: 'Baby Trend Nursery Center Playard Animal Jubilee Grey Infant',
     amazonTitle: 'Baby Trend Retreat Nursery Center Playard Bassinet Storage Robin',
-  }], students, 10, 'run-revalidate');
+  })], students, 10, 'run-revalidate');
   assert.deepEqual(assignments.a, []);
 });
 
@@ -520,6 +598,24 @@ test('Discord delivery splits ten deals into bounded messages', () => {
   };
   const payloads = discordPayloads({ name: 'Student' }, Array.from({ length: 10 }, () => deal));
   assert.deepEqual(payloads.map((payload) => payload.embeds.length), [4, 4, 2]);
+});
+
+test('concurrent and retried Discord workers receive only one delivery claim', async () => {
+  const values = new Map();
+  const fakeRedis = {
+    async get(key) { return values.get(key) || null; },
+    async set(key, value, options = {}) {
+      if (options.nx && values.has(key)) return null;
+      values.set(key, value);
+      return 'OK';
+    },
+  };
+  const claims = await Promise.all(Array.from({ length: 8 }, () =>
+    claimDiscordDelivery(fakeRedis, 'run-1', 'student-1', 60)));
+  assert.equal(claims.filter((claim) => claim === 'claimed').length, 1);
+  assert.equal(claims.filter((claim) => claim === 'in_progress').length, 7);
+  values.set('run:run-1:delivered:student-1', true);
+  assert.equal(await claimDiscordDelivery(fakeRedis, 'run-1', 'student-1', 60), 'delivered');
 });
 
 test('zero-deal Discord message reports analysis errors', () => {

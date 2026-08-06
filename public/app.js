@@ -43,8 +43,13 @@ function renderRuns(runs) {
     return;
   }
   const latest = runs[0];
-  $('#latestStatus').textContent = latest.status === 'finalized' ? 'Complete' : (latest.status === 'cancelled' ? 'Cancelled' : 'Analyzing');
-  $('#latestDetail').textContent = `${latest.completedJobs}/${latest.totalJobs} jobs · ${latest.qualifiedDeals} qualified`;
+  const statusLabels = {
+    finalized: 'Complete', cancelled: 'Cancelled', awaiting_audit: 'Awaiting audit', analyzing: 'Analyzing',
+  };
+  $('#latestStatus').textContent = statusLabels[latest.status] || latest.status;
+  $('#latestDetail').textContent = latest.outcome === 'legacy_run'
+    ? `${latest.completedJobs}/${latest.totalJobs} checked · legacy matching`
+    : `${latest.completedJobs}/${latest.totalJobs} checked · ${latest.qualifiedDeals} exact profitable match${latest.qualifiedDeals === 1 ? '' : 'es'}`;
   list.innerHTML = runs.map((run) => {
     const total = Math.max(1, Number(run.totalJobs || 0));
     const percent = Math.min(100, Math.round((Number(run.completedJobs || 0) / total) * 100));
@@ -52,21 +57,61 @@ function renderRuns(runs) {
     const rejectionLabels = {
       no_amazon_match: 'no Amazon match', identity_mismatch: 'identity',
       product_code_mismatch: 'UPC/EAN', variant_mismatch: 'variant',
-      product_type_mismatch: 'product type', excluded_fragrance: 'fragrance excluded',
+      product_type_mismatch: 'product type', exact_match_verification: 'exact identity check',
       buy_cost_over_limit: 'buy cost over $150',
       quantity_mismatch: 'quantity', blocked_brand: 'blocked brand',
       missing_amazon_price: 'missing price', price_spread: 'under spread',
-      missing_sales_velocity: 'missing sales', sales_velocity: 'under sales', other: 'other',
+      net_profit: 'net profit ≤ $1', missing_sales_velocity: 'missing sales',
+      sales_velocity: 'under sales', missing_upc: 'missing UPC',
+      unverified_variant: 'unverified variant', walmart_unavailable: 'Walmart unavailable',
+      walmart_detail_unverified: 'detail identity unverified',
+      walmart_detail_lookup_error: 'detail lookup error', other: 'other',
+    };
+    const outcomeLabels = {
+      processing: 'Identity and economics checks are still running',
+      profitable_products_found: 'Exact profitable products found',
+      identity_not_established: 'Could not establish exact identity',
+      no_profitable_products: 'Exact identities found, but none passed economics',
+      legacy_run: 'Legacy title-matching run',
     };
     const rejectionSummary = Object.entries(run.rejectionCounts || {})
       .filter(([, count]) => count > 0)
       .map(([reason, count]) => `${count} ${rejectionLabels[reason] || reason}`)
       .join(' · ');
+    const funnel = run.funnel || {};
+    const funnelItems = [
+      ['Discovered', funnel.discovered], ['Initially eligible', funnel.initiallyEligible],
+      ['Details checked', funnel.detailPagesChecked], ['UPC confirmed', funnel.upcConfirmed],
+      ['Exact Amazon match', funnel.exactAmazonMatchFound], ['Economics passed', funnel.economicsPassed],
+      ['Stock confirmed', funnel.stockConfirmed], ['Auto delivered', funnel.automaticallyDelivered],
+      ['Manual review', funnel.manualReview],
+    ];
+    const comparisonRows = (run.rejectionDetails || []).slice(0, 12).map((item) => {
+      const walmart = item.walmartIdentity || {};
+      const amazon = item.comparisons?.[0] || {};
+      return `<div class="identity-row">
+        <div><b>Walmart</b><span>${escapeHtml(walmart.title || item.title)}</span><small>UPC ${escapeHtml(walmart.upc || 'not established')} · Variant ${escapeHtml(walmart.variantId || 'unknown')}</small></div>
+        <div><b>Amazon comparison</b><span>${escapeHtml(amazon.amazonTitle || 'No exact coded listing')}</span><small>${escapeHtml(amazon.asin || 'No ASIN')} · ${escapeHtml(rejectionLabels[item.reason] || item.reason)}</small></div>
+      </div>`;
+    }).join('');
+    const manualRows = (run.manualReview || []).slice(0, 12).map((item) => `<div class="review-row">
+      <a href="${escapeHtml(item.walmartUrl)}" target="_blank" rel="noreferrer">${escapeHtml(item.title)}</a>
+      <small>${escapeHtml(rejectionLabels[item.reason] || item.reason)} · UPC ${escapeHtml(item.upc || 'missing')} · ${escapeHtml(item.seller || 'seller unknown')}</small>
+    </div>`).join('');
+    const auditRows = (run.qualifiedReview || []).map((item) => `<div class="identity-row qualified-row">
+      <div><b>Walmart · $${Number(item.walmartPrice).toFixed(2)}</b><a href="${escapeHtml(item.walmartUrl)}" target="_blank" rel="noreferrer">${escapeHtml(item.walmartTitle)}</a><small>UPC ${escapeHtml(item.upc)} · Variant ${escapeHtml(item.variantId)}</small></div>
+      <div><b>Amazon · $${Number(item.amazonPrice).toFixed(2)}</b><a href="${escapeHtml(item.amazonUrl)}" target="_blank" rel="noreferrer">${escapeHtml(item.amazonTitle)}</a><small>${Number(item.roi).toFixed(1)}% gross spread · $${Number(item.estimatedProfit).toFixed(2)} est. net · ${Math.round(Number(item.estimatedMonthlySales)).toLocaleString('en-US')} sales</small></div>
+    </div>`).join('');
     return `<div class="run-card">
-      <div class="run-top"><div><div class="run-id">${escapeHtml(run.runId)}</div><span class="metric-detail">${formatDate(run.createdAt)}</span></div><span class="status ${['finalized','cancelled'].includes(run.status) ? run.status : ''}">${escapeHtml(run.status)}</span></div>
+      <div class="run-top"><div><div class="run-id">${escapeHtml(run.runId)}</div><span class="metric-detail">${formatDate(run.createdAt)}</span></div><span class="status ${['finalized','cancelled','awaiting_audit'].includes(run.status) ? run.status : ''}">${escapeHtml(run.status.replaceAll('_', ' '))}</span></div>
       <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
       <div class="run-stats"><span><b>${run.completedJobs}/${run.totalJobs}</b> analyzed</span><span><b>${run.qualifiedDeals}</b> qualified</span><span><b>${run.analysisErrors}</b> errors</span><span><b>${deliveries}</b> delivered</span></div>
+      <div class="run-outcome">${escapeHtml(outcomeLabels[run.outcome] || run.outcome || 'Processing')}</div>
+      <div class="funnel-grid">${funnelItems.map(([label, value]) => `<span><b>${Number(value || 0)}</b><small>${label}</small></span>`).join('')}</div>
       ${rejectionSummary ? `<div class="metric-detail">Rejected: ${escapeHtml(rejectionSummary)}</div>` : ''}
+      ${auditRows ? `<details class="run-details" ${run.auditMode ? 'open' : ''}><summary>${run.auditMode ? 'Audit exact qualified identities' : 'View qualified identities'} (${run.qualifiedReview.length})</summary>${auditRows}</details>` : ''}
+      ${manualRows ? `<details class="run-details"><summary>Manual-review queue (${run.manualReview.length}${Number(funnel.manualReview) > run.manualReview.length ? '+' : ''})</summary>${manualRows}</details>` : ''}
+      ${comparisonRows ? `<details class="run-details"><summary>Rejection identity comparisons</summary>${comparisonRows}</details>` : ''}
     </div>`;
   }).join('');
 }

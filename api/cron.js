@@ -16,6 +16,7 @@ import {
   redis,
   requireEnvironment,
   walmartUrlsForWindow,
+  withinBuyCostLimit,
   workerAuthorized,
 } from '../lib/platform.js';
 
@@ -51,8 +52,8 @@ export default async function handler(request, response) {
     }
     const requestedLimit = Number.parseInt(input.limit, 10);
     const candidateLimit = Number.isInteger(requestedLimit)
-      ? Math.max(1, Math.min(requestedLimit, config.maxCandidates))
-      : config.maxCandidates;
+      ? Math.max(1, Math.min(requestedLimit, config.maxCandidates, config.walmartDetailLookupLimit))
+      : Math.min(config.maxCandidates, config.walmartDetailLookupLimit);
     const requestedWindow = Number.parseInt(input.window, 10);
     const sourceWindow = Number.isInteger(requestedWindow)
       ? Math.max(0, requestedWindow)
@@ -64,12 +65,13 @@ export default async function handler(request, response) {
     ]);
     if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
     if (rawScrapedCandidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
-    const allBrandEligibleCandidates = rawScrapedCandidates
-      .filter((candidate) => !isExcludedWalmartBrand(candidate));
-    const excludedWalmartBrands = rawScrapedCandidates.length - allBrandEligibleCandidates.length;
+    const brandEligible = rawScrapedCandidates.filter((candidate) => !isExcludedWalmartBrand(candidate));
+    const excludedWalmartBrands = rawScrapedCandidates.length - brandEligible.length;
+    const allBrandEligibleCandidates = brandEligible.filter((candidate) => withinBuyCostLimit(candidate.currentPrice));
+    const excludedBuyCost = brandEligible.length - allBrandEligibleCandidates.length;
     const brandEligibleCandidates = allBrandEligibleCandidates.slice(0, candidateLimit);
     if (brandEligibleCandidates.length === 0) {
-      throw new Error('Every scraped candidate was excluded as a Walmart private-label brand');
+      throw new Error('No scraped candidates passed the initial brand and buy-cost filters');
     }
     const candidates = input.refresh === true || input.refresh === 'true'
       ? brandEligibleCandidates
@@ -101,15 +103,19 @@ export default async function handler(request, response) {
       status: 'analyzing',
       students,
       candidateCount: candidates.length,
+      discoveredCount: rawScrapedCandidates.length,
+      initiallyEligibleCount: allBrandEligibleCandidates.length,
       scrapedCandidateCount: rawScrapedCandidates.length,
       excludedWalmartBrands,
+      excludedBuyCost,
       skippedRecentlyAnalyzed,
       sourceWindow,
       sourceUrl: sourceUrls[0],
       sourcePages: sourceUrls.length,
       refresh: input.refresh === true || input.refresh === 'true',
       continuationRunsRemaining: Math.max(0, Number.parseInt(input.continuationRunsRemaining, 10) || 0),
-      staged: true,
+      auditMode: input.audit === true || input.audit === 'true',
+      staged: false,
       totalChunks: chunks.length,
       targetDealsPerStudent: config.targetDealsPerStudent,
       keepaTokensAtQueueTime: keepaStatus.tokensLeft,
@@ -124,17 +130,14 @@ export default async function handler(request, response) {
     await redis.lpush('runs:recent', runId);
     await redis.ltrim('runs:recent', 0, 19);
 
-    const initiallyQueuedChunks = Math.min(chunks.length, config.analysisBatchSize);
-    await publishBatch(chunks.slice(0, initiallyQueuedChunks).map((_, chunkIndex) => ({
-      url: `${config.publicBaseUrl}/api/analyze`,
+    const initiallyQueuedChunks = chunks.length;
+    await publishBatch(chunks.map((_, chunkIndex) => ({
+      url: `${config.publicBaseUrl}/api/enrich`,
       body: { runId, chunkIndex },
-      deduplicationId: `${runId}-analyze-${chunkIndex}`,
-      delaySeconds: analysisDelaySeconds(
-        chunkIndex,
-        effectiveRefillRate,
-        config.keepaTokensPerCandidate,
-        initialDelaySeconds,
-      ),
+      deduplicationId: `${runId}-enrich-${chunkIndex}`,
+      // Avoid bursting 50 simultaneous detail-page requests into a scraper's
+      // small prototype concurrency allowance.
+      delaySeconds: chunkIndex,
     })));
     console.log(JSON.stringify({ event: 'run_queued', runId, students: students.length, candidates: candidates.length, chunks: chunks.length }));
     return jsonResponse(response, 202, {
@@ -144,8 +147,11 @@ export default async function handler(request, response) {
       candidates: candidates.length,
       scrapedCandidates: rawScrapedCandidates.length,
       excludedWalmartBrands,
+      excludedBuyCost,
       skippedRecentlyAnalyzed,
       candidateLimit,
+      detailLookupLimit: config.walmartDetailLookupLimit,
+      detailJobs: chunks.length,
       analysisJobs: chunks.length,
       initiallyQueuedJobs: initiallyQueuedChunks,
       sourceWindow,
@@ -161,6 +167,7 @@ export default async function handler(request, response) {
       targetUniqueDeals: config.deliverAllQualified
         ? candidates.length
         : students.length * config.targetDealsPerStudent,
+      auditMode: run.auditMode,
     });
   } catch (error) {
     console.error(JSON.stringify({ event: 'cron_failed', message: error.message }));

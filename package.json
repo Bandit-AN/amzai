@@ -10,7 +10,7 @@
   "scripts": {
     "test": "node --test",
     "hash-password": "node scripts/hash-password.js",
-    "check": "node --check lib/platform.js && node --check api/admin.js && node --check api/auth.js && node --check api/cron.js && node --check api/analyze.js && node --check api/finalize.js && node --check api/status.js && node --check api/student.js && node --check api/worker.js && node --check public/app.js && node --check scripts/hash-password.js"
+    "check": "node --check lib/platform.js && node --check api/admin.js && node --check api/auth.js && node --check api/cron.js && node --check api/enrich.js && node --check api/analyze.js && node --check api/finalize.js && node --check api/status.js && node --check api/student.js && node --check api/worker.js && node --check public/app.js && node --check scripts/hash-password.js"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
