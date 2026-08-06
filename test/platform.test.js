@@ -298,6 +298,21 @@ test('canonical English identity can match a localized Walmart title safely', ()
   assert.equal(listingQuantitiesCompatible(localized, amazon).compatible, true);
 });
 
+test('deterministic identity checks expose why a final exact adjudicator is required', () => {
+  assert.equal(productIdentityCompatible(
+    'Jimmy Choo Man Ice Eau de Toilette 3.3 oz',
+    'Jimmy Choo Man Intense Eau de Toilette 3.3 oz',
+    'Jimmy Choo',
+    'Jimmy Choo',
+  ), true);
+  assert.equal(productIdentityCompatible(
+    'Fuggler Fugglercorns Wrinkle McStinkles 9 Inch Plush',
+    'Fuggler Fugglercorns Mr Screech 9 Inch Plush',
+    'Fuggler',
+    'Fuggler',
+  ), true);
+});
+
 test('rejects related products with different named models and styles', () => {
   assert.equal(productIdentityCompatible(
     'Baby Trend Nursery Center Playard Animal Jubilee Grey Infant',

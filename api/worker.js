@@ -31,6 +31,7 @@ export default async function handler(request, response) {
   if (!workerAuthorized(request)) return jsonResponse(response, 401, { error: 'Unauthorized' });
   let runId;
   let studentId;
+  let postedPayloads = 0;
   const lockKey = () => `run:${runId}:deliveryLock:${studentId}`;
   try {
     ({ runId, studentId } = await readJsonBody(request));
@@ -38,7 +39,10 @@ export default async function handler(request, response) {
     if (await redis.get(`run:${runId}:delivered:${studentId}`)) {
       return jsonResponse(response, 200, { ok: true, duplicate: true });
     }
-    const locked = await redis.set(lockKey(), true, { nx: true, ex: 120 });
+    // This is an idempotency claim, not merely a short concurrency lock. Keep
+    // it for the run lifetime so a QStash/Vercel retry cannot repost a Discord
+    // batch after the first request succeeded but the function response was lost.
+    const locked = await redis.set(lockKey(), true, { nx: true, ex: config.runTtlSeconds });
     if (!locked) return jsonResponse(response, 409, { ok: false, error: 'Delivery already in progress' });
     const [meta, deals] = await Promise.all([
       redis.get(`run:${runId}:meta`),
@@ -74,6 +78,7 @@ export default async function handler(request, response) {
     webhook.searchParams.set('wait', 'true');
     for (const payload of payloads) {
       await postDiscord(webhook.href, payload);
+      postedPayloads += 1;
     }
     await Promise.all([
       redis.set(`run:${runId}:delivered:${studentId}`, true, { ex: config.runTtlSeconds }),
@@ -83,13 +88,15 @@ export default async function handler(request, response) {
         { ex: config.productCooldownSeconds },
       )),
     ]);
-    await redis.del(lockKey());
     return jsonResponse(response, 200, {
       ok: true, runId, studentId, delivered: deliverableDeals.length,
       suppressedUnavailable: unavailableDeals.length,
     });
   } catch (error) {
-    if (runId && studentId) await redis.del(lockKey()).catch(() => {});
+    // An explicit failure before any Discord post is safe to retry. Once one
+    // message has posted, retain the claim to prefer a partial delivery over
+    // sending duplicates with ambiguous webhook acknowledgement.
+    if (runId && studentId && postedPayloads === 0) await redis.del(lockKey()).catch(() => {});
     console.error(JSON.stringify({ event: 'delivery_failed', runId, studentId, message: error.message }));
     return jsonResponse(response, 500, { ok: false, error: error.message });
   }
