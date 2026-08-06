@@ -126,6 +126,7 @@ export default async function handler(request, response) {
             meta.keepaTokensPerMinute,
             config.keepaTokensPerCandidate,
             meta.initialDelaySeconds,
+            meta.keepaTokensAtQueueTime,
           ),
         });
       } catch (error) {

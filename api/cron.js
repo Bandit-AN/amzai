@@ -163,6 +163,7 @@ export default async function handler(request, response) {
         effectiveRefillRate,
         config.keepaTokensPerCandidate,
         initialDelaySeconds,
+        keepaStatus.tokensLeft,
       ) / 60),
       targetUniqueDeals: config.deliverAllQualified
         ? candidates.length

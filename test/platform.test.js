@@ -59,6 +59,9 @@ test('spaces Keepa jobs for keyword search plus product details', () => {
   assert.equal(analysisDelaySeconds(2, 1, 12), 1440);
   assert.equal(analysisDelaySeconds(1, 20, 12), 36);
   assert.equal(analysisDelaySeconds(1, 1, 12, 120), 840);
+  assert.equal(analysisDelaySeconds(0, 20, 15, 0, 60), 0);
+  assert.equal(analysisDelaySeconds(3, 20, 15, 0, 60), 15);
+  assert.equal(analysisDelaySeconds(4, 20, 15, 0, 60), 45);
   assert.equal(keepaInitialDelaySeconds(-9, 1, 12), 1260);
   assert.equal(keepaInitialDelaySeconds(60, 1, 12), 0);
 });

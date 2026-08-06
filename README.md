@@ -19,7 +19,7 @@ Vercel cron
 
 Splitting work prevents one long HTTP execution from owning the whole run and gives each chunk independent retries. It does not bypass Vercel account usage, scraper credits, Gemini usage, or Keepa tokens.
 
-The code defaults to `KEEPA_TOKENS_PER_MINUTE=1` and reserves a conservative `15` tokens per UPC search plus product details. Before queueing, it reads Keepa's token balance without spending a token and delays work long enough to recover any deficit. Set `KEEPA_TOKENS_PER_MINUTE=20` for the upgraded plan; spacing automatically adjusts. Product lookup excludes Keepa's optional offers payload because the profitability calculator does not use it and it can add substantial token cost.
+The code defaults to `KEEPA_TOKENS_PER_MINUTE=1` and reserves a conservative `15` tokens per UPC search plus product details. Before queueing, it reads Keepa's token balance without spending a token. Accumulated tokens are used at a bounded five-second cadence; once that balance is reserved, later jobs wait for the configured refill rate. Set `KEEPA_TOKENS_PER_MINUTE=20` for the upgraded plan. Product lookup excludes Keepa's optional offers payload because the profitability calculator does not use it and it can add substantial token cost.
 
 ## Airtable setup
 
