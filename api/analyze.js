@@ -64,6 +64,9 @@ export default async function handler(request, response) {
     {
       try {
         const result = await analyzeCandidate(candidate);
+        if (result.funnel?.amazonUpcMatchFound) {
+          await redis.incr(`run:${runId}:funnel:amazonUpcMatchFound`);
+        }
         if (result.funnel?.exactAmazonMatchFound) {
           await redis.incr(`run:${runId}:funnel:exactAmazonMatchFound`);
         }
@@ -73,7 +76,7 @@ export default async function handler(request, response) {
         if (result.deal) {
           await Promise.all([
             redis.rpush(`run:${runId}:qualified`, result.deal),
-            redis.incr(`run:${runId}:funnel:stockConfirmed`),
+            redis.incr(`run:${runId}:funnel:automaticallyQualified`),
           ]);
           qualified += 1;
         } else {

@@ -15,6 +15,7 @@ const {
   candidatePriority,
   calculateDeal,
   claimDiscordDelivery,
+  dailyWalmartWindow,
   discordPayload,
   discordPayloads,
   emptyDiscordPayload,
@@ -31,6 +32,7 @@ const {
   productCodesCompatible,
   productFormsCompatible,
   sanitizedRetryError,
+  selectUnseenCandidates,
   verifyStudentPassword,
   walmartSourceUrls,
   walmartUrlsForWindow,
@@ -166,6 +168,18 @@ test('rotates distinct Walmart feeds before moving deeper', () => {
   for (const url of [...first, ...second]) assert.match(url, /retailer_type%3AWalmart/);
 });
 
+test('daily automation stays in the first page window while rotating sources', () => {
+  const aug7 = dailyWalmartWindow(Date.parse('2026-08-07T13:00:00Z'));
+  const aug8 = dailyWalmartWindow(Date.parse('2026-08-08T13:00:00Z'));
+  const aug9 = dailyWalmartWindow(Date.parse('2026-08-09T13:00:00Z'));
+  assert.deepEqual([aug7, aug8, aug9], [0, 1, 2]);
+  for (const window of [aug7, aug8, aug9]) {
+    const urls = walmartUrlsForWindow(window);
+    assert.equal(urls[0].includes('page='), false);
+    assert.match(urls.at(-1), /page=6/);
+  }
+});
+
 test('includes retailer-filtered sourcing searches without collapsing their queries', () => {
   const sources = walmartSourceUrls();
   assert.equal(sources.filter((url) => url.includes('/search?')).length, 15);
@@ -180,6 +194,18 @@ test('prioritizes discounted standardized products over variation-heavy products
   };
   const variationHeavy = { title: 'Acme Women Shoe Size 8', currentPrice: 20 };
   assert.ok(candidatePriority(discounted) > candidatePriority(variationHeavy));
+});
+
+test('prioritizes real markdowns and first-party branded inventory', () => {
+  const firstPartyMarkdown = {
+    title: 'Crayola Marker Set 24 Count', currentPrice: 8, originalPrice: 16,
+    brand: 'Crayola', seller: 'Walmart.com', onlineAvailable: true,
+  };
+  const marketplaceFullPrice = {
+    title: 'Generic Marker Set 24 Count', currentPrice: 8,
+    seller: 'Third Party Store', onlineAvailable: true,
+  };
+  assert.ok(candidatePriority(firstPartyMarkdown) > candidatePriority(marketplaceFullPrice));
 });
 
 test('enforces the global Walmart buy-cost ceiling', () => {
@@ -498,6 +524,21 @@ test('candidate cooldown fingerprint changes when the Walmart price changes', ()
   const candidate = { itemId: '123', title: 'Acme Widget', currentPrice: 10 };
   assert.equal(candidateFingerprint(candidate), candidateFingerprint({ ...candidate }));
   assert.notEqual(candidateFingerprint(candidate), candidateFingerprint({ ...candidate, currentPrice: 9 }));
+});
+
+test('cooldown selection backfills past seen products before applying the detail limit', () => {
+  const candidates = Array.from({ length: 75 }, (_, index) => ({ itemId: String(index) }));
+  const seen = candidates.map((_, index) => index < 35);
+  const selected = selectUnseenCandidates(candidates, seen, 50);
+  assert.equal(selected.length, 40);
+  assert.equal(selected[0].itemId, '35');
+  assert.equal(selected.at(-1).itemId, '74');
+
+  const largerPool = Array.from({ length: 120 }, (_, index) => ({ itemId: String(index) }));
+  const largerSeen = largerPool.map((_, index) => index < 35);
+  const backfilled = selectUnseenCandidates(largerPool, largerSeen, 50);
+  assert.equal(backfilled.length, 50);
+  assert.equal(backfilled.at(-1).itemId, '84');
 });
 
 test('classifies provider throttling and temporary failures as retryable', () => {

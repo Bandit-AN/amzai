@@ -77,6 +77,13 @@ export default async function handler(request, response) {
       );
       if (firstIdentityRecord) await redis.incr(`run:${runId}:funnel:upcConfirmed`);
     }
+    if (enriched.detailVerified && enriched.onlineAvailable === true) {
+      const firstStockRecord = await redis.set(
+        `run:${runId}:chunk:${chunkIndex}:stockRecorded`, true,
+        { nx: true, ex: config.runTtlSeconds },
+      );
+      if (firstStockRecord) await redis.incr(`run:${runId}:funnel:stockConfirmed`);
+    }
 
     const manualReason = automaticEligibilityReason(enriched);
 

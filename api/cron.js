@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   analysisDelaySeconds,
   config,
+  dailyWalmartWindow,
   fetchActiveStudents,
   fetchKeepaTokenStatus,
   fetchWalmartCatalog,
@@ -57,11 +58,15 @@ export default async function handler(request, response) {
     const requestedWindow = Number.parseInt(input.window, 10);
     const sourceWindow = Number.isInteger(requestedWindow)
       ? Math.max(0, requestedWindow)
-      : Math.floor(Date.now() / 86400000);
+      : dailyWalmartWindow();
     const sourceUrls = walmartUrlsForWindow(sourceWindow);
+    const discoveryPoolLimit = Math.min(
+      config.maxCandidates,
+      candidateLimit * config.walmartDiscoveryMultiplier,
+    );
     const [students, rawScrapedCandidates] = await Promise.all([
       fetchActiveStudents(),
-      fetchWalmartCatalog(Math.min(config.maxCandidates, candidateLimit * 2), sourceUrls),
+      fetchWalmartCatalog(discoveryPoolLimit, sourceUrls),
     ]);
     if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
     if (rawScrapedCandidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
@@ -69,14 +74,16 @@ export default async function handler(request, response) {
     const excludedWalmartBrands = rawScrapedCandidates.length - brandEligible.length;
     const allBrandEligibleCandidates = brandEligible.filter((candidate) => withinBuyCostLimit(candidate.currentPrice));
     const excludedBuyCost = brandEligible.length - allBrandEligibleCandidates.length;
-    const brandEligibleCandidates = allBrandEligibleCandidates.slice(0, candidateLimit);
-    if (brandEligibleCandidates.length === 0) {
+    if (allBrandEligibleCandidates.length === 0) {
       throw new Error('No scraped candidates passed the initial brand and buy-cost filters');
     }
-    const candidates = input.refresh === true || input.refresh === 'true'
-      ? brandEligibleCandidates
-      : await filterRecentlyAnalyzedCandidates(brandEligibleCandidates);
-    const skippedRecentlyAnalyzed = brandEligibleCandidates.length - candidates.length;
+    const refresh = input.refresh === true || input.refresh === 'true';
+    const freshEligibleCandidates = refresh
+      ? allBrandEligibleCandidates
+      : await filterRecentlyAnalyzedCandidates(allBrandEligibleCandidates);
+    const skippedRecentlyAnalyzed = allBrandEligibleCandidates.length - freshEligibleCandidates.length;
+    const candidates = freshEligibleCandidates.slice(0, candidateLimit);
+    const notSelectedAfterLimit = Math.max(0, freshEligibleCandidates.length - candidates.length);
     if (candidates.length === 0) {
       return jsonResponse(response, 200, {
         ok: true,
@@ -112,7 +119,10 @@ export default async function handler(request, response) {
       sourceWindow,
       sourceUrl: sourceUrls[0],
       sourcePages: sourceUrls.length,
-      refresh: input.refresh === true || input.refresh === 'true',
+      refresh,
+      discoveryPoolLimit,
+      freshCandidateCount: freshEligibleCandidates.length,
+      notSelectedAfterLimit,
       continuationRunsRemaining: Math.max(0, Number.parseInt(input.continuationRunsRemaining, 10) || 0),
       auditMode: input.audit === true || input.audit === 'true',
       staged: false,
@@ -149,6 +159,9 @@ export default async function handler(request, response) {
       excludedWalmartBrands,
       excludedBuyCost,
       skippedRecentlyAnalyzed,
+      freshCandidates: freshEligibleCandidates.length,
+      notSelectedAfterLimit,
+      discoveryPoolLimit,
       candidateLimit,
       detailLookupLimit: config.walmartDetailLookupLimit,
       detailJobs: chunks.length,

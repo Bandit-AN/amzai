@@ -71,7 +71,8 @@ function renderRuns(runs) {
       processing: 'Identity and economics checks are still running',
       profitable_products_found: 'Exact profitable products found',
       identity_not_established: 'Could not establish exact identity',
-      no_profitable_products: 'Exact identities found, but none passed economics',
+      exact_amazon_identity_not_established: 'Walmart UPCs were found, but no exact Amazon listing identity passed',
+      no_profitable_products: 'Exact listing identities were found, but none passed every economics rule',
       legacy_run: 'Legacy title-matching run',
     };
     const rejectionSummary = Object.entries(run.rejectionCounts || {})
@@ -81,9 +82,11 @@ function renderRuns(runs) {
     const funnel = run.funnel || {};
     const funnelItems = [
       ['Discovered', funnel.discovered], ['Initially eligible', funnel.initiallyEligible],
-      ['Details checked', funnel.detailPagesChecked], ['UPC confirmed', funnel.upcConfirmed],
-      ['Exact Amazon match', funnel.exactAmazonMatchFound], ['Economics passed', funnel.economicsPassed],
-      ['Stock confirmed', funnel.stockConfirmed], ['Auto delivered', funnel.automaticallyDelivered],
+      ['Skipped: already seen', funnel.skippedRecentlyAnalyzed], ['Fresh candidates', funnel.freshCandidates],
+      ['Details checked', funnel.detailPagesChecked], ['Walmart in stock', funnel.stockConfirmed],
+      ['UPC confirmed', funnel.upcConfirmed], ['Amazon UPC result', funnel.amazonUpcMatchFound],
+      ['Exact listing identity', funnel.exactAmazonMatchFound], ['Economics passed', funnel.economicsPassed],
+      ['Auto-qualified', funnel.automaticallyQualified], ['Auto delivered', funnel.automaticallyDelivered],
       ['Manual review', funnel.manualReview],
     ];
     const comparisonRows = (run.rejectionDetails || []).slice(0, 12).map((item) => {
@@ -112,6 +115,7 @@ function renderRuns(runs) {
       <div class="run-outcome">${escapeHtml(outcomeLabels[run.outcome] || run.outcome || 'Processing')}</div>
       <div class="funnel-grid">${funnelItems.map(([label, value]) => `<span><b>${Number(value || 0)}</b><small>${label}</small></span>`).join('')}</div>
       ${rejectionSummary ? `<div class="metric-detail">Rejected: ${escapeHtml(rejectionSummary)}</div>` : ''}
+      ${run.sourcing ? `<div class="metric-detail">Discovery pool: up to ${Number(run.sourcing.discoveryPoolLimit || 0)} · ${Number(run.sourcing.notSelectedAfterLimit || 0)} fresh candidates held for a future run</div>` : ''}
       ${auditRows ? `<details class="run-details" ${run.auditMode ? 'open' : ''}><summary>${run.auditMode ? 'Audit exact qualified identities' : 'View qualified identities'} (${run.qualifiedReview.length})</summary>${auditRows}</details>` : ''}
       ${manualRows ? `<details class="run-details"><summary>Manual-review queue (${run.manualReview.length}${Number(funnel.manualReview) > run.manualReview.length ? '+' : ''})</summary>${manualRows}</details>` : ''}
       ${errorRows ? `<details class="run-details"><summary>Processing errors (${run.errorDetails.length})</summary>${errorRows}</details>` : ''}

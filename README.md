@@ -72,11 +72,12 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `KEEPA_SEARCH_RESULTS`: number of Amazon candidates evaluated per Walmart product; defaults to `5`.
 - `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for one keyword search plus five product details; defaults to `15`.
 - `WALMART_DETAIL_LOOKUP_LIMIT`: maximum individual Walmart product pages verified per run; defaults to `50` and is capped at `100`.
+- `WALMART_DISCOVERY_MULTIPLIER`: broad-card discovery pool relative to the detail limit; defaults to `5`, so a 50-detail run can rank up to 250 cards before cooldown and final selection.
 - `MAXIMUM_WALMART_BUY_COST`: global Walmart buy-cost ceiling applied before Gemini and Keepa; defaults to `$150`.
 - `WALMART_RENDER_JS=true` with `WALMART_PREMIUM_PROXY=false`: uses the verified 5-credit page request and automatically retries once with a premium US proxy only for blocking or temporary upstream failures.
 - `STUDENT_CACHE_SECONDS`: Redis cache lifetime for the active Airtable roster; defaults to 15 minutes.
 - `PRODUCT_COOLDOWN_SECONDS`: unchanged-product and delivered-ASIN cooldown; defaults to 30 days.
-- `WALMART_PAGES_PER_RUN` and `WALMART_MAX_PAGE`: rotate a fixed-size page window through the Walmart catalog without increasing daily scraper requests.
+- `WALMART_PAGES_PER_RUN` and `WALMART_MAX_PAGE`: daily automation rotates the first page window across every source; explicit continuation runs move into deeper page windows only after cycling all sources.
 
 `WALMART_TARGET_URLS` may contain multiple comma- or newline-separated category/page URLs. Results are merged and deduplicated by Walmart item ID before the run limit is applied.
 
