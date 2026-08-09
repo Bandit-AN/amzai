@@ -126,6 +126,7 @@ export default async function handler(request, response) {
       continuationRunsRemaining: Math.max(0, Number.parseInt(input.continuationRunsRemaining, 10) || 0),
       auditMode: input.audit === true || input.audit === 'true',
       staged: false,
+      funnelVersion: 2,
       totalChunks: chunks.length,
       targetDealsPerStudent: config.targetDealsPerStudent,
       keepaTokensAtQueueTime: keepaStatus.tokensLeft,

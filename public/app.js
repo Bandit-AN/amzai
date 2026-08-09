@@ -113,7 +113,7 @@ function renderRuns(runs) {
       <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
       <div class="run-stats"><span><b>${run.completedJobs}/${run.totalJobs}</b> analyzed</span><span><b>${run.qualifiedDeals}</b> qualified</span><span><b>${run.analysisErrors}</b> errors</span><span><b>${deliveries}</b> delivered</span></div>
       <div class="run-outcome">${escapeHtml(outcomeLabels[run.outcome] || run.outcome || 'Processing')}</div>
-      <div class="funnel-grid">${funnelItems.map(([label, value]) => `<span><b>${Number(value || 0)}</b><small>${label}</small></span>`).join('')}</div>
+      <div class="funnel-grid">${funnelItems.map(([label, value]) => `<span><b>${value === null || value === undefined ? '—' : Number(value)}</b><small>${label}</small></span>`).join('')}</div>
       ${rejectionSummary ? `<div class="metric-detail">Rejected: ${escapeHtml(rejectionSummary)}</div>` : ''}
       ${run.sourcing ? `<div class="metric-detail">Discovery pool: up to ${Number(run.sourcing.discoveryPoolLimit || 0)} · ${Number(run.sourcing.notSelectedAfterLimit || 0)} fresh candidates held for a future run</div>` : ''}
       ${auditRows ? `<details class="run-details" ${run.auditMode ? 'open' : ''}><summary>${run.auditMode ? 'Audit exact qualified identities' : 'View qualified identities'} (${run.qualifiedReview.length})</summary>${auditRows}</details>` : ''}
