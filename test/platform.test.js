@@ -219,6 +219,8 @@ test('daily runs balance broad feeds with rotating clearance categories', () => 
   assert.equal(new Set(aug11).size, 6);
   assert.notDeepEqual(aug11, aug12);
   for (const url of aug11) assert.equal(url.includes('page='), false);
+  const categoryIndexes = aug11.slice(2).map((url) => walmartSourceUrls().indexOf(url));
+  assert.ok(Math.max(...categoryIndexes) - Math.min(...categoryIndexes) >= 6);
 });
 
 test('balanced discovery cannot be monopolized by one feed', () => {
@@ -251,6 +253,18 @@ test('prioritizes discounted standardized products over variation-heavy products
   };
   const variationHeavy = { title: 'Acme Women Shoe Size 8', currentPrice: 20 };
   assert.ok(candidatePriority(discounted) > candidatePriority(variationHeavy));
+});
+
+test('extreme apparel markdowns cannot outrank useful standardized markdowns', () => {
+  const apparel = {
+    title: "Carter's Baby Outfit Set, Sizes 0/3-24 Months",
+    currentPrice: 4, originalPrice: 20, brand: "Carter's", seller: 'Walmart.com',
+  };
+  const standardized = {
+    title: 'Crayola Marker Set, 10 Count', currentPrice: 5, originalPrice: 10,
+    brand: 'Crayola', seller: 'Walmart.com',
+  };
+  assert.ok(candidatePriority(standardized) > candidatePriority(apparel));
 });
 
 test('prioritizes real markdowns and first-party branded inventory', () => {
@@ -612,7 +626,10 @@ test('routes missing identity, stock, UPC, and variants away from automatic deli
   assert.equal(automaticEligibilityReason({ ...base, detailVerified: false }), 'walmart_detail_unverified');
   assert.equal(automaticEligibilityReason({ ...base, onlineAvailable: false }), 'walmart_unavailable');
   assert.equal(automaticEligibilityReason({ ...base, upc: null }), 'missing_upc');
-  assert.equal(automaticEligibilityReason({ ...base, title: 'Acme Shirt Size Large', variantId: null }), 'unverified_variant');
+  assert.equal(automaticEligibilityReason({ ...base, title: 'Acme Shirt Size Large' }), 'unverified_variant');
+  assert.equal(automaticEligibilityReason({
+    ...base, title: 'Acme Shirt Size Large', selectedVariant: { size: 'Large' },
+  }), null);
   assert.equal(automaticEligibilityReason(base), null);
 });
 
