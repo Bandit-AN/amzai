@@ -21,6 +21,7 @@ const {
   emptyDiscordPayload,
   extractListingQuantities,
   hashStudentPassword,
+  hasWalmartDealSignal,
   isExcludedProductType,
   isExcludedWalmartBrand,
   isRetryableProviderError,
@@ -91,6 +92,32 @@ test('preserves Walmart original price and UPC when present', () => {
   assert.equal(product.upc, '001234567890');
 });
 
+test('reads Walmart search-card line price, was price, and deal badge', () => {
+  const [product] = normalizeWalmartPayload({ items: [{
+    name: 'Clearance Widget', canonicalUrl: '/ip/clearance-widget/24681',
+    priceInfo: { linePrice: '$9.33', wasPrice: '$19.00', savingsAmt: 9.67 },
+    badge: { key: 'REDUCED_PRICE' }, usItemId: '24681',
+  }] });
+  assert.equal(product.currentPrice, 9.33);
+  assert.equal(product.originalPrice, 19);
+  assert.equal(product.dealBadge, 'REDUCED_PRICE');
+  assert.equal(hasWalmartDealSignal(product), true);
+});
+
+test('search HTML parses only authoritative result stacks, including an empty page', () => {
+  const nextData = (items) => `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+    props: { pageProps: { initialData: { searchResult: { itemStacks: [{ items }] } } } },
+    analytics: { name: 'Bogus Recommended Product', price: 1, url: '/ip/bogus/99999' },
+  })}</script>`;
+  const valid = normalizeWalmartPayload(nextData([{
+    name: 'Real Clearance Item', canonicalUrl: '/ip/real/11111',
+    priceInfo: { linePrice: '$10.00', wasPrice: '$20.00' },
+  }]));
+  const empty = normalizeWalmartPayload(nextData([]));
+  assert.deepEqual(valid.map((product) => product.itemId), ['11111']);
+  assert.deepEqual(empty, []);
+});
+
 test('preserves explicit Walmart unavailability for the review funnel', () => {
   const [product] = normalizeWalmartPayload({ items: [{
     name: 'Unavailable Widget', price: 10, availabilityStatus: 'Out of stock',
@@ -151,47 +178,47 @@ test('does not inject URL slug numbers into quantity matching', () => {
   assert.equal(product.title, 'Bertolli Extra Virgin Olive Oil, 25.4 fl oz');
 });
 
-test('rotates distinct Walmart feeds before moving deeper', () => {
+test('rotates distinct real Walmart clearance feeds without fake deep pages', () => {
   const first = walmartUrlsForWindow(0);
   const second = walmartUrlsForWindow(1);
-  const fifth = walmartUrlsForWindow(4);
-  const twentieth = walmartUrlsForWindow(19);
-  assert.equal(first.length, 6);
-  assert.equal(second.length, 6);
-  assert.equal(walmartSourceUrls().length, 19);
+  const third = walmartUrlsForWindow(2);
+  const wrapped = walmartUrlsForWindow(walmartSourceUrls().length);
+  assert.equal(first.length, 1);
+  assert.equal(second.length, 1);
+  assert.equal(walmartSourceUrls().length, 14);
   assert.equal(first[0].includes('page='), false);
-  assert.match(first[5], /page=6/);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
-  assert.match(walmartUrlsForWindow(2)[0], /\/shop\/deals\/new-deals/);
-  assert.match(walmartUrlsForWindow(3)[0], /\/shop\/deals\/trending/);
-  assert.match(fifth[0], /clearance\+toys/);
-  assert.equal(fifth.length, 1);
-  assert.equal(fifth[0].includes('page='), false);
-  assert.match(twentieth[0], /page=7/);
-  for (const url of [...first, ...second]) assert.match(url, /retailer_type%3AWalmart/);
-});
-
-test('daily automation stays in the first page window while rotating sources', () => {
-  const aug7 = dailyWalmartWindow(Date.parse('2026-08-07T13:00:00Z'));
-  const aug8 = dailyWalmartWindow(Date.parse('2026-08-08T13:00:00Z'));
-  const aug9 = dailyWalmartWindow(Date.parse('2026-08-09T13:00:00Z'));
-  assert.deepEqual([aug7, aug8, aug9], [0, 1, 2]);
-  for (const window of [aug7, aug8, aug9]) {
-    const urls = walmartUrlsForWindow(window);
-    assert.equal(urls[0].includes('page='), false);
-    assert.match(urls.at(-1), /page=6/);
+  assert.match(third[0], /\/shop\/deals\/clearance\/toys/);
+  assert.equal(wrapped[0], first[0]);
+  for (const url of [...first, ...second, ...third]) {
+    assert.equal(url.includes('page='), false);
+    assert.match(url, /retailer_type%3AWalmart/);
   }
 });
 
-test('daily runs balance broad feeds with rotating category searches', () => {
+test('daily automation rotates real source feeds', () => {
+  const aug7 = dailyWalmartWindow(Date.parse('2026-08-07T13:00:00Z'));
+  const aug8 = dailyWalmartWindow(Date.parse('2026-08-08T13:00:00Z'));
+  const aug9 = dailyWalmartWindow(Date.parse('2026-08-09T13:00:00Z'));
+  assert.equal(aug8, (aug7 + 1) % walmartSourceUrls().length);
+  assert.equal(aug9, (aug8 + 1) % walmartSourceUrls().length);
+  for (const window of [aug7, aug8, aug9]) {
+    const urls = walmartUrlsForWindow(window);
+    assert.equal(urls[0].includes('page='), false);
+    assert.equal(urls.length, 1);
+  }
+});
+
+test('daily runs balance broad feeds with rotating clearance categories', () => {
   const aug11 = walmartUrlsForDailyRun(Date.parse('2026-08-11T13:00:00Z'));
   const aug12 = walmartUrlsForDailyRun(Date.parse('2026-08-12T13:00:00Z'));
   assert.equal(aug11.length, 6);
-  assert.equal(aug11.filter((url) => url.includes('/search?')).length, 2);
-  assert.equal(aug11.filter((url) => !url.includes('/search?')).length, 4);
+  assert.equal(aug11.filter((url) => /\/shop\/deals\/clearance\//.test(url)).length, 4);
+  assert.equal(aug11.filter((url) => /\/shop\/(?:savings|deals\/clearance)\?/.test(url)).length, 2);
   assert.equal(new Set(aug11).size, 6);
   assert.notDeepEqual(aug11, aug12);
+  for (const url of aug11) assert.equal(url.includes('page='), false);
 });
 
 test('balanced discovery cannot be monopolized by one feed', () => {
@@ -210,11 +237,11 @@ test('balanced discovery cannot be monopolized by one feed', () => {
   }
 });
 
-test('includes retailer-filtered sourcing searches without collapsing their queries', () => {
+test('includes retailer-filtered Walmart clearance category feeds', () => {
   const sources = walmartSourceUrls();
-  assert.equal(sources.filter((url) => url.includes('/search?')).length, 15);
-  assert.ok(sources.some((url) => url.includes('clearance+video+games')));
-  assert.ok(sources.some((url) => url.includes('clearance+office+school+supplies')));
+  assert.equal(sources.filter((url) => /\/shop\/deals\/clearance\//.test(url)).length, 12);
+  assert.ok(sources.some((url) => url.includes('/clearance/toys')));
+  assert.ok(sources.some((url) => url.includes('/clearance/household-essentials')));
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 
@@ -313,6 +340,29 @@ test('accepts equivalent units and rejects different package sizes', () => {
   assert.equal(listingQuantitiesCompatible('Markers 3 Pack', 'Markers Pack of 3').compatible, true);
 });
 
+test('accepts equivalent total volume grouped as multipack versus one package', () => {
+  const result = listingQuantitiesCompatible(
+    'Jarritos Mexican Cola Soda, 12.5 fl oz, 12 Pack',
+    'Jarritos Mexican Cola Soda, 150 fl oz (Pack of 1)',
+  );
+  assert.equal(result.compatible, true);
+});
+
+test('UPC mode can tolerate a missing unit size but never a missing outer pack', () => {
+  assert.equal(listingQuantitiesCompatible(
+    'Bertolli Extra Virgin Olive Oil',
+    'Bertolli Extra Virgin Olive Oil, 16.9 fl oz',
+    null,
+    { allowMissingUnitSize: true },
+  ).compatible, true);
+  assert.equal(listingQuantitiesCompatible(
+    'Better Office Products Blue Paper Folder',
+    'Better Office Products Blue Paper Folders, 50 Pack',
+    null,
+    { allowMissingUnitSize: true },
+  ).compatible, false);
+});
+
 test('recognizes retailer multiplier notation as an outer pack count', () => {
   const result = listingQuantitiesCompatible(
     'Reveal Wet Cat Food Variety in Broth 12 x 2.47oz Cans',
@@ -405,6 +455,10 @@ test('UPC-confirmed title identity tolerates manufacturer and product-line brand
   assert.equal(upcTitleIdentityCompatible(
     'Fisher-Price Little People School Bus Musical Toddler Toy Vehicle with 2 Figures',
     'Fisher-Price Little People School Bus Toddler Toy',
+  ), true);
+  assert.equal(upcTitleIdentityCompatible(
+    'Bitzee Interactive Digital Toy with 30 Characters Inside',
+    'Bitzee Digital Pet Toy',
   ), true);
   assert.equal(upcTitleIdentityCompatible(
     'Baby Trend Nursery Center Playard Animal Jubilee Grey Infant',

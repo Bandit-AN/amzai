@@ -9,6 +9,7 @@ import {
   fetchWalmartCatalog,
   filterRecentlyAnalyzedCandidates,
   getRunSummary,
+  hasWalmartDealSignal,
   isExcludedWalmartBrand,
   jsonResponse,
   keepaInitialDelaySeconds,
@@ -72,12 +73,14 @@ export default async function handler(request, response) {
     ]);
     if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
     if (rawScrapedCandidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
-    const brandEligible = rawScrapedCandidates.filter((candidate) => !isExcludedWalmartBrand(candidate));
-    const excludedWalmartBrands = rawScrapedCandidates.length - brandEligible.length;
+    const dealEligible = rawScrapedCandidates.filter(hasWalmartDealSignal);
+    const excludedNoDealSignal = rawScrapedCandidates.length - dealEligible.length;
+    const brandEligible = dealEligible.filter((candidate) => !isExcludedWalmartBrand(candidate));
+    const excludedWalmartBrands = dealEligible.length - brandEligible.length;
     const allBrandEligibleCandidates = brandEligible.filter((candidate) => withinBuyCostLimit(candidate.currentPrice));
     const excludedBuyCost = brandEligible.length - allBrandEligibleCandidates.length;
     if (allBrandEligibleCandidates.length === 0) {
-      throw new Error('No scraped candidates passed the initial brand and buy-cost filters');
+      throw new Error('No scraped candidates passed the markdown, brand, and buy-cost filters');
     }
     const refresh = input.refresh === true || input.refresh === 'true';
     const freshEligibleCandidates = refresh
@@ -116,12 +119,17 @@ export default async function handler(request, response) {
       initiallyEligibleCount: allBrandEligibleCandidates.length,
       scrapedCandidateCount: rawScrapedCandidates.length,
       excludedWalmartBrands,
+      excludedNoDealSignal,
       excludedBuyCost,
       skippedRecentlyAnalyzed,
       sourceWindow,
       sourceUrl: sourceUrls[0],
       sourceUrls,
       sourcePages: sourceUrls.length,
+      sourceCandidateCounts: Object.fromEntries(sourceUrls.map((url) => [
+        url,
+        rawScrapedCandidates.filter((candidate) => candidate.discoverySourceUrl === url).length,
+      ])),
       refresh,
       discoveryPoolLimit,
       freshCandidateCount: freshEligibleCandidates.length,
@@ -161,6 +169,7 @@ export default async function handler(request, response) {
       candidates: candidates.length,
       scrapedCandidates: rawScrapedCandidates.length,
       excludedWalmartBrands,
+      excludedNoDealSignal,
       excludedBuyCost,
       skippedRecentlyAnalyzed,
       freshCandidates: freshEligibleCandidates.length,

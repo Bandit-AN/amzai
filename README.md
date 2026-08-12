@@ -78,7 +78,7 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `STUDENT_CACHE_SECONDS`: Redis cache lifetime for the active Airtable roster; defaults to 15 minutes.
 - `PRODUCT_COOLDOWN_SECONDS`: unchanged-product and delivered-ASIN cooldown; defaults to 30 days.
 - `RUN_TTL_SECONDS`: run evidence retention; the service enforces a seven-day minimum so daily funnels remain diagnosable.
-- `WALMART_PAGES_PER_RUN` and `WALMART_MAX_PAGE`: daily automation spends its page budget across four broad Walmart deal feeds plus rotating category searches; explicit continuation runs can still traverse deeper page windows.
+- `WALMART_PAGES_PER_RUN`: number of real Walmart clearance feeds checked per daily run. Walmart's deal feeds currently expose one authoritative result page, so the system rotates department feeds instead of requesting nonexistent deep pages.
 
 `WALMART_TARGET_URLS` may contain multiple comma- or newline-separated category/page URLs. Results are merged and deduplicated by Walmart item ID before the run limit is applied.
 
@@ -102,7 +102,7 @@ Candidates are ranked before detail verification using available clearance disco
 
 Qualified-deal ranking caps the benefit of gross spread at 75%, so implausible 200%–300% spreads cannot dominate solid products near the threshold. Sales velocity remains part of ranking.
 
-Walmart runs rotate through retailer-filtered Savings, Clearance, New Deals, Trending Deals, and broad department searches before moving deeper within a source. Historical winners do not niche or bias discovery toward those specific brands.
+Walmart runs check retailer-filtered Savings and Clearance plus rotating Clearance department feeds. The parser accepts only Walmart's authoritative search-result stacks and drops products without a real markdown or deal badge before any detail-page, Keepa, or Gemini work. Historical winners do not niche or bias discovery toward those specific brands.
 
 `WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. `BLOCKED_BRANDS` applies the same early exclusion to restricted national brands. LEGO, Barbie, Monster High, Apple, and Bissell are always blocked; configured values extend that list. These filters save downstream usage, though the source pages must still be downloaded by the scraper.
 
