@@ -84,6 +84,13 @@ export default async function handler(request, response) {
             chunkIndex,
             title: candidate.title,
             reason: result.rejection || 'other',
+            walmartIdentity: {
+              title: candidate.title,
+              currentPrice: candidate.currentPrice,
+              upc: candidate.upc,
+              variantId: candidate.variantId,
+              seller: candidate.seller,
+            },
             diagnostics: result.diagnostics || [],
           });
         }

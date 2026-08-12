@@ -92,9 +92,12 @@ function renderRuns(runs) {
     const comparisonRows = (run.rejectionDetails || []).slice(0, 12).map((item) => {
       const walmart = item.walmartIdentity || {};
       const amazon = item.comparisons?.[0] || {};
+      const economics = Number.isFinite(Number(amazon.amazonPrice))
+        ? ` · Amazon $${Number(amazon.amazonPrice).toFixed(2)} · ${Number(amazon.roi).toFixed(1)}% spread · $${Number(amazon.estimatedProfit).toFixed(2)} net · ${Math.round(Number(amazon.estimatedMonthlySales || 0)).toLocaleString('en-US')} sales`
+        : '';
       return `<div class="identity-row">
-        <div><b>Walmart</b><span>${escapeHtml(walmart.title || item.title)}</span><small>UPC ${escapeHtml(walmart.upc || 'not established')} · Variant ${escapeHtml(walmart.variantId || 'unknown')}</small></div>
-        <div><b>Amazon comparison</b><span>${escapeHtml(amazon.amazonTitle || 'No exact coded listing')}</span><small>${escapeHtml(amazon.asin || 'No ASIN')} · ${escapeHtml(rejectionLabels[item.reason] || item.reason)}</small></div>
+        <div><b>Walmart${Number.isFinite(Number(walmart.currentPrice)) ? ` · $${Number(walmart.currentPrice).toFixed(2)}` : ''}</b><span>${escapeHtml(walmart.title || item.title)}</span><small>UPC ${escapeHtml(walmart.upc || 'not established')} · Variant ${escapeHtml(walmart.variantId || 'unknown')}</small></div>
+        <div><b>Amazon comparison</b><span>${escapeHtml(amazon.amazonTitle || 'No exact coded listing')}</span><small>${escapeHtml(amazon.asin || 'No ASIN')} · ${escapeHtml(rejectionLabels[item.reason] || item.reason)}${escapeHtml(economics)}</small></div>
       </div>`;
     }).join('');
     const manualRows = (run.manualReview || []).slice(0, 12).map((item) => `<div class="review-row">
@@ -115,7 +118,7 @@ function renderRuns(runs) {
       <div class="run-outcome">${escapeHtml(outcomeLabels[run.outcome] || run.outcome || 'Processing')}</div>
       <div class="funnel-grid">${funnelItems.map(([label, value]) => `<span><b>${value === null || value === undefined ? '—' : Number(value)}</b><small>${label}</small></span>`).join('')}</div>
       ${rejectionSummary ? `<div class="metric-detail">Rejected: ${escapeHtml(rejectionSummary)}</div>` : ''}
-      ${run.sourcing ? `<div class="metric-detail">Discovery pool: up to ${Number(run.sourcing.discoveryPoolLimit || 0)} · ${Number(run.sourcing.notSelectedAfterLimit || 0)} fresh candidates held for a future run</div>` : ''}
+      ${run.sourcing ? `<div class="metric-detail">Sources: ${(run.sourcing.sourceUrls || []).length} · Discovery pool: up to ${Number(run.sourcing.discoveryPoolLimit || 0)} · ${Number(run.sourcing.excludedWalmartBrands || 0)} blocked-brand exclusions · ${Number(run.sourcing.excludedBuyCost || 0)} over buy-cost limit · ${Number(run.sourcing.notSelectedAfterLimit || 0)} fresh candidates held for a future run</div>` : ''}
       ${auditRows ? `<details class="run-details" ${run.auditMode ? 'open' : ''}><summary>${run.auditMode ? 'Audit exact qualified identities' : 'View qualified identities'} (${run.qualifiedReview.length})</summary>${auditRows}</details>` : ''}
       ${manualRows ? `<details class="run-details"><summary>Manual-review queue (${run.manualReview.length}${Number(funnel.manualReview) > run.manualReview.length ? '+' : ''})</summary>${manualRows}</details>` : ''}
       ${errorRows ? `<details class="run-details"><summary>Processing errors (${run.errorDetails.length})</summary>${errorRows}</details>` : ''}

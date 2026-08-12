@@ -15,7 +15,7 @@ export default async function handler(request, response) {
   }
   try {
     const [runIds, keepa, students] = await Promise.all([
-      redis.lrange('runs:recent', 0, 4),
+      redis.lrange('runs:recent', 0, 9),
       cachedValue('cache:keepa:status', 60, fetchKeepaTokenStatus),
       fetchActiveStudents(),
     ]);

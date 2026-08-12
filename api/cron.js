@@ -16,6 +16,7 @@ import {
   readJsonBody,
   redis,
   requireEnvironment,
+  walmartUrlsForDailyRun,
   walmartUrlsForWindow,
   withinBuyCostLimit,
   workerAuthorized,
@@ -56,10 +57,11 @@ export default async function handler(request, response) {
       ? Math.max(1, Math.min(requestedLimit, config.maxCandidates, config.walmartDetailLookupLimit))
       : Math.min(config.maxCandidates, config.walmartDetailLookupLimit);
     const requestedWindow = Number.parseInt(input.window, 10);
-    const sourceWindow = Number.isInteger(requestedWindow)
-      ? Math.max(0, requestedWindow)
-      : dailyWalmartWindow();
-    const sourceUrls = walmartUrlsForWindow(sourceWindow);
+    const explicitWindow = Number.isInteger(requestedWindow);
+    const sourceWindow = explicitWindow ? Math.max(0, requestedWindow) : dailyWalmartWindow();
+    const sourceUrls = explicitWindow
+      ? walmartUrlsForWindow(sourceWindow)
+      : walmartUrlsForDailyRun();
     const discoveryPoolLimit = Math.min(
       config.maxCandidates,
       candidateLimit * config.walmartDiscoveryMultiplier,
@@ -118,6 +120,7 @@ export default async function handler(request, response) {
       skippedRecentlyAnalyzed,
       sourceWindow,
       sourceUrl: sourceUrls[0],
+      sourceUrls,
       sourcePages: sourceUrls.length,
       refresh,
       discoveryPoolLimit,
@@ -170,6 +173,7 @@ export default async function handler(request, response) {
       initiallyQueuedJobs: initiallyQueuedChunks,
       sourceWindow,
       sourceUrl: sourceUrls[0],
+      sourceUrls,
       sourcePages: sourceUrls.length,
       initialDelayMinutes: Math.ceil(initialDelaySeconds / 60),
       estimatedAnalysisMinutes: Math.ceil(analysisDelaySeconds(

@@ -70,14 +70,15 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `ONBOARDING_VIDEO_URL`: an embeddable HTTPS video URL; leave blank to show the branded placeholder.
 - `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
 - `KEEPA_SEARCH_RESULTS`: number of Amazon candidates evaluated per Walmart product; defaults to `5`.
-- `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative budget for one keyword search plus five product details; defaults to `15`.
+- `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative scheduling budget for a direct UPC/EAN product-code lookup that may return multiple ASINs; defaults to `15`.
 - `WALMART_DETAIL_LOOKUP_LIMIT`: maximum individual Walmart product pages verified per run; defaults to `50` and is capped at `100`.
 - `WALMART_DISCOVERY_MULTIPLIER`: broad-card discovery pool relative to the detail limit; defaults to `5`, so a 50-detail run can rank up to 250 cards before cooldown and final selection.
 - `MAXIMUM_WALMART_BUY_COST`: global Walmart buy-cost ceiling applied before Gemini and Keepa; defaults to `$150`.
 - `WALMART_RENDER_JS=true` with `WALMART_PREMIUM_PROXY=false`: uses the verified 5-credit page request and automatically retries once with a premium US proxy only for blocking or temporary upstream failures.
 - `STUDENT_CACHE_SECONDS`: Redis cache lifetime for the active Airtable roster; defaults to 15 minutes.
 - `PRODUCT_COOLDOWN_SECONDS`: unchanged-product and delivered-ASIN cooldown; defaults to 30 days.
-- `WALMART_PAGES_PER_RUN` and `WALMART_MAX_PAGE`: daily automation rotates the first page window across every source; explicit continuation runs move into deeper page windows only after cycling all sources.
+- `RUN_TTL_SECONDS`: run evidence retention; the service enforces a seven-day minimum so daily funnels remain diagnosable.
+- `WALMART_PAGES_PER_RUN` and `WALMART_MAX_PAGE`: daily automation spends its page budget across four broad Walmart deal feeds plus rotating category searches; explicit continuation runs can still traverse deeper page windows.
 
 `WALMART_TARGET_URLS` may contain multiple comma- or newline-separated category/page URLs. Results are merged and deduplicated by Walmart item ID before the run limit is applied.
 
@@ -159,4 +160,4 @@ If a manual or scheduled sourcing run is still analyzing, a new cron invocation 
 
 Ten students receiving ten strictly unique deals requires 100 qualified products. At a 1% qualification rate, that implies roughly 10,000 raw candidates; at 2%, roughly 5,000. Measure every stage before increasing source coverage and token budgets. A paid student product is commercial; treat free service tiers as prototype allowances rather than a permanent cost model.
 
-The prototype checks at most 50 Walmart detail pages per run and starts those requests 10 seconds apart to remain inside small scraper concurrency allowances. Scraper usage is therefore the discovery-page requests plus up to 50 detail requests, while only UPC-confirmed items consume Keepa and Gemini capacity. Do not increase `WALMART_DETAIL_LOOKUP_LIMIT`, page count, or daily frequency without reviewing current scraper, QStash, Redis, Gemini, Keepa, and Vercel usage dashboards.
+The prototype checks at most 50 Walmart detail pages per run and starts those requests 10 seconds apart to remain inside small scraper concurrency allowances. Scraper usage is therefore the discovery-page requests plus up to 50 detail requests. Only UPC-confirmed items consume Keepa capacity, and Gemini is reserved for the final exact-match adjudication after economics pass. Do not increase `WALMART_DETAIL_LOOKUP_LIMIT`, page count, or daily frequency without reviewing current scraper, QStash, Redis, Gemini, Keepa, and Vercel usage dashboards.

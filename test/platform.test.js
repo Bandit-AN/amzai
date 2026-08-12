@@ -25,16 +25,20 @@ const {
   isExcludedWalmartBrand,
   isRetryableProviderError,
   keepaInitialDelaySeconds,
+  keepaProductCodeParams,
   listingQuantitiesCompatible,
   listingVariantsCompatible,
+  mergeBalancedCandidates,
   normalizeWalmartPayload,
   productIdentityCompatible,
   productCodesCompatible,
   productFormsCompatible,
   sanitizedRetryError,
   selectUnseenCandidates,
+  upcTitleIdentityCompatible,
   verifyStudentPassword,
   walmartSourceUrls,
+  walmartUrlsForDailyRun,
   walmartUrlsForWindow,
   withinBuyCostLimit,
 } = await import('../lib/platform.js');
@@ -180,6 +184,32 @@ test('daily automation stays in the first page window while rotating sources', (
   }
 });
 
+test('daily runs balance broad feeds with rotating category searches', () => {
+  const aug11 = walmartUrlsForDailyRun(Date.parse('2026-08-11T13:00:00Z'));
+  const aug12 = walmartUrlsForDailyRun(Date.parse('2026-08-12T13:00:00Z'));
+  assert.equal(aug11.length, 6);
+  assert.equal(aug11.filter((url) => url.includes('/search?')).length, 2);
+  assert.equal(aug11.filter((url) => !url.includes('/search?')).length, 4);
+  assert.equal(new Set(aug11).size, 6);
+  assert.notDeepEqual(aug11, aug12);
+});
+
+test('balanced discovery cannot be monopolized by one feed', () => {
+  const groups = [0, 1, 2].map((group) => Array.from({ length: 10 }, (_, index) => ({
+    itemId: `${group}-${index}`, title: `Feed ${group} item ${index}`,
+    currentPrice: 10, originalPrice: group === 0 ? 30 : 20,
+  })));
+  const selected = mergeBalancedCandidates(groups, 6);
+  assert.equal(selected.length, 6);
+  assert.deepEqual(
+    [...new Set(selected.map((candidate) => candidate.itemId.split('-')[0]))].sort(),
+    ['0', '1', '2'],
+  );
+  for (const group of ['0', '1', '2']) {
+    assert.equal(selected.filter((candidate) => candidate.itemId.startsWith(`${group}-`)).length, 2);
+  }
+});
+
 test('includes retailer-filtered sourcing searches without collapsing their queries', () => {
   const sources = walmartSourceUrls();
   assert.equal(sources.filter((url) => url.includes('/search?')).length, 15);
@@ -226,6 +256,7 @@ test('globally blocks restricted national brands before downstream analysis', ()
   assert.equal(isExcludedWalmartBrand({ title: 'Monster High Clawdeen Wolf Doll' }), true);
   assert.equal(isExcludedWalmartBrand({ title: 'Apple USB-C to Lightning Cable' }), true);
   assert.equal(isExcludedWalmartBrand({ title: 'BISSELL CrossWave Floor Cleaner' }), true);
+  assert.equal(isExcludedWalmartBrand({ title: 'Little People Barbie Dream Plane' }), true);
 });
 
 test('identifies variation-heavy apparel for risk labeling', () => {
@@ -364,6 +395,28 @@ test('accepts normalized matching brands with meaningful title overlap', () => {
     'Coca-Cola',
     'Coca Cola',
   ), true);
+});
+
+test('UPC-confirmed title identity tolerates manufacturer and product-line brand aliases', () => {
+  assert.equal(upcTitleIdentityCompatible(
+    'Disney Pixar Cars Transforming Mack Playset, 2-in-1 Toy Truck & Tune-Up Station',
+    'Mattel Disney and Pixar Cars Transforming Mack Playset',
+  ), true);
+  assert.equal(upcTitleIdentityCompatible(
+    'Fisher-Price Little People School Bus Musical Toddler Toy Vehicle with 2 Figures',
+    'Fisher-Price Little People School Bus Toddler Toy',
+  ), true);
+  assert.equal(upcTitleIdentityCompatible(
+    'Baby Trend Nursery Center Playard Animal Jubilee Grey Infant',
+    'Baby Trend Retreat Nursery Center Playard Bassinet Storage Robin',
+  ), false);
+});
+
+test('Keepa external-code lookup uses the product code endpoint parameters', () => {
+  const params = keepaProductCodeParams('0012-3456-7890');
+  assert.deepEqual(params, { domain: 1, code: '001234567890', stats: 30, history: 0 });
+  assert.equal('term' in params, false);
+  assert.equal('asin' in params, false);
 });
 
 test('canonical English identity can match a localized Walmart title safely', () => {
