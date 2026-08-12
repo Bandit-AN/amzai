@@ -354,6 +354,29 @@ test('accepts equivalent units and rejects different package sizes', () => {
   assert.equal(listingQuantitiesCompatible('Markers 3 Pack', 'Markers Pack of 3').compatible, true);
 });
 
+test('normalizes retailer count wording such as each and colors', () => {
+  assert.equal(listingQuantitiesCompatible(
+    'Crayola Broad Line Markers, 10 Ct',
+    'Crayola Broad Line Markers, Classic Colors 10 Each',
+  ).compatible, true);
+  assert.equal(listingQuantitiesCompatible(
+    'Crayola Crayons, 24 Count',
+    'Crayola Crayons 24 Colors',
+  ).compatible, true);
+});
+
+test('normalizes nested count and pack-of-one metadata to the sellable count', () => {
+  assert.deepEqual(extractListingQuantities('Face Masks 5 Count (Pack of 1)').outer_count, [5]);
+  assert.equal(listingQuantitiesCompatible(
+    'Body Restore Collagen Face Mask, 5 Pack',
+    'Body Restore Collagen Face Sheet Mask 5 Pack 5 Count (Pack of 1)',
+  ).compatible, true);
+  assert.equal(listingQuantitiesCompatible(
+    'Single Sticky Note Pad, 100 Sheets',
+    'Sticky Notes, 18 Pack, 100 Count per Pad',
+  ).compatible, false);
+});
+
 test('accepts equivalent total volume grouped as multipack versus one package', () => {
   const result = listingQuantitiesCompatible(
     'Jarritos Mexican Cola Soda, 12.5 fl oz, 12 Pack',
@@ -473,6 +496,10 @@ test('UPC-confirmed title identity tolerates manufacturer and product-line brand
   assert.equal(upcTitleIdentityCompatible(
     'Bitzee Interactive Digital Toy with 30 Characters Inside',
     'Bitzee Digital Pet Toy',
+  ), true);
+  assert.equal(upcTitleIdentityCompatible(
+    'Crayola Crayons, 24 Count, Classic Colors',
+    'CRAYON 24PK BX',
   ), true);
   assert.equal(upcTitleIdentityCompatible(
     'Baby Trend Nursery Center Playard Animal Jubilee Grey Infant',
