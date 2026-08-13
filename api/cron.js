@@ -37,8 +37,8 @@ export default async function handler(request, response) {
       'AIRTABLE_BASE_ID', 'QSTASH_TOKEN', 'UPSTASH_REDIS_REST_URL',
       'UPSTASH_REDIS_REST_TOKEN', 'PUBLIC_BASE_URL', 'WORKER_SECRET', 'KEEPA_API_KEY',
     ]);
-    if (!config.scraperApiKey && !config.walmartScraperApiKey) {
-      throw new Error('SCRAPERAPI_KEY or WALMART_SCRAPER_API_KEY is required');
+    if (!config.scrapingAntApiKey && !config.scraperApiKey && !config.walmartScraperApiKey) {
+      throw new Error('SCRAPINGANT_API_KEY, SCRAPERAPI_KEY, or WALMART_SCRAPER_API_KEY is required');
     }
     const recentRunIds = await redis.lrange('runs:recent', 0, 4);
     for (const recentRunId of recentRunIds) {

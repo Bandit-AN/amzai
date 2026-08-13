@@ -35,6 +35,7 @@ const {
   productCodesCompatible,
   productFormsCompatible,
   sanitizedRetryError,
+  scrapingAntRequestOptions,
   selectUnseenCandidates,
   upcTitleIdentityCompatible,
   verifyStudentPassword,
@@ -697,6 +698,17 @@ test('classifies provider throttling and temporary failures as retryable', () =>
   assert.equal(isRetryableProviderError({ response: { status: 503 } }), true);
   assert.equal(isRetryableProviderError({ response: { status: 400 } }), false);
   assert.equal(isRetryableProviderError({ code: 'ECONNABORTED' }), true);
+});
+
+test('ScrapingAnt uses cheap static US requests before browser escalation', () => {
+  const target = 'https://www.walmart.com/shop/deals/clearance';
+  const staticRequest = scrapingAntRequestOptions(target, false);
+  const browserRequest = scrapingAntRequestOptions(target, true);
+  assert.deepEqual(staticRequest.params, {
+    url: target, browser: 'false', proxy_type: 'datacenter', proxy_country: 'US',
+  });
+  assert.equal(browserRequest.params.browser, 'true');
+  assert.ok(browserRequest.timeout > staticRequest.timeout);
 });
 
 test('sanitizes retryable provider failures before they reach Vercel logs', () => {

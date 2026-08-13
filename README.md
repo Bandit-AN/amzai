@@ -56,7 +56,7 @@ Paste the resulting `pbkdf2$...` value into Airtable's `Password Hash` field. St
 
 Copy `.env.example` to `.env` and set the same variables in Vercel for Production, Preview, and Development.
 
-- ScrapingBee: one platform key and a comma-separated set of Walmart URLs. Add category and pagination URLs to grow the candidate pool without asking students for scraper keys.
+- ScrapingAnt (preferred): one platform key. The app tries a one-credit static US request first and escalates to a ten-credit browser request only when Walmart blocks it. Existing ScraperAPI and ScrapingBee keys remain fallbacks.
 - Gemini: one platform key used only after UPC confirmation to normalize and adjudicate exact product identity.
 - Keepa: one platform key used for UPC-first Amazon matching, live price/history fields, and a monthly-sales signal.
 - Airtable: student roster and preferences.
@@ -106,7 +106,7 @@ Walmart runs check retailer-filtered Savings and Clearance plus rotating Clearan
 
 `WALMART_EXCLUDED_BRANDS` removes configured Walmart private-label products after page extraction but before Gemini, Keepa, and QStash work. `BLOCKED_BRANDS` applies the same early exclusion to restricted national brands. LEGO, Barbie, Monster High, Apple, and Bissell are always blocked; configured values extend that list. These filters save downstream usage, though the source pages must still be downloaded by the scraper.
 
-When `SCRAPERAPI_KEY` is configured, Walmart pages use ScraperAPI with US routing. Walmart's embedded product JSON currently works without browser rendering, so `SCRAPERAPI_RENDER_JS=false` is the faster, lower-credit default. ScrapingBee remains a compatibility fallback when its key is also present.
+When `SCRAPINGANT_API_KEY` is configured, Walmart pages use ScrapingAnt first with US datacenter routing and `browser=false`. Walmart's embedded product JSON normally works without browser rendering; blocking responses automatically retry once with browser rendering. `SCRAPERAPI_KEY` and `WALMART_SCRAPER_API_KEY` (ScrapingBee) remain compatibility fallbacks when configured.
 
 Keepa does **not** verify intellectual-property complaint risk or whether a particular Amazon seller account is eligible to sell an ASIN. Every Discord card therefore carries a prominent manual IP/eligibility warning. `BLOCKED_BRANDS` provides only an admin-maintained preliminary exclusion list.
 
