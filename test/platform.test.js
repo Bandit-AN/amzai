@@ -722,6 +722,11 @@ test('classifies provider throttling and temporary failures as retryable', () =>
   assert.equal(isRetryableProviderError({ code: 'ECONNABORTED' }), true);
 });
 
+test('a bare 403 is permanent (quota exhaustion) unless a caller has tagged it retryable', () => {
+  assert.equal(isRetryableProviderError({ response: { status: 403 } }), false);
+  assert.equal(isRetryableProviderError({ response: { status: 403 }, retryable: true }), true);
+});
+
 test('ScrapingAnt uses cheap static US requests before browser escalation', () => {
   const target = 'https://www.walmart.com/shop/deals/clearance';
   const staticRequest = scrapingAntRequestOptions(target, false);
