@@ -8,6 +8,7 @@ import {
   readJsonBody,
   redis,
   requireEnvironment,
+  salesVelocityManualReviewEntry,
   workerAuthorized,
 } from '../lib/platform.js';
 
@@ -83,6 +84,16 @@ export default async function handler(request, response) {
           ]);
           qualified += 1;
         } else {
+          if (result.rejection === 'missing_sales_velocity') {
+            const priced = (result.diagnostics || [])
+              .find((d) => d.rejection === 'missing_sales_velocity' && d.amazonPrice);
+            if (priced) {
+              await Promise.all([
+                redis.rpush(`run:${runId}:manualReview`, salesVelocityManualReviewEntry(candidate, priced)),
+                redis.incr(`run:${runId}:funnel:manualReview`),
+              ]);
+            }
+          }
           await redis.rpush(`run:${runId}:rejections`, {
             chunkIndex,
             title: candidate.title,

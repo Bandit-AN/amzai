@@ -36,6 +36,7 @@ const {
   productIdentityCompatible,
   productCodesCompatible,
   productFormsCompatible,
+  salesVelocityManualReviewEntry,
   sanitizedRetryError,
   scrapingAntRequestOptions,
   selectUnseenCandidates,
@@ -188,7 +189,7 @@ test('rotates distinct real Walmart clearance feeds without fake deep pages', ()
   const wrapped = walmartUrlsForWindow(walmartSourceUrls().length);
   assert.equal(first.length, 1);
   assert.equal(second.length, 1);
-  assert.equal(walmartSourceUrls().length, 14);
+  assert.equal(walmartSourceUrls().length, 21);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
@@ -244,7 +245,7 @@ test('balanced discovery cannot be monopolized by one feed', () => {
 
 test('includes retailer-filtered Walmart clearance category feeds', () => {
   const sources = walmartSourceUrls();
-  assert.equal(sources.filter((url) => /\/shop\/deals\/clearance\//.test(url)).length, 12);
+  assert.equal(sources.filter((url) => /\/shop\/deals\/clearance\//.test(url)).length, 19);
   assert.ok(sources.some((url) => url.includes('/clearance/toys')));
   assert.ok(sources.some((url) => url.includes('/clearance/household-essentials')));
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
@@ -725,6 +726,22 @@ test('classifies provider throttling and temporary failures as retryable', () =>
 test('a bare 403 is permanent (quota exhaustion) unless a caller has tagged it retryable', () => {
   assert.equal(isRetryableProviderError({ response: { status: 403 } }), false);
   assert.equal(isRetryableProviderError({ response: { status: 403 }, retryable: true }), true);
+});
+
+test('a priced match with no velocity signal becomes a manual-review entry, not a silent discard', () => {
+  const candidate = {
+    itemId: '123', title: 'Acme Widget', walmartUrl: 'https://www.walmart.com/ip/123',
+    currentPrice: 9.99, upc: '001234567890', variantId: '123', seller: 'Walmart.com',
+  };
+  const diagnostic = {
+    asin: 'B000000000', amazonTitle: 'Acme Widget', amazonPrice: 24.99, roi: 150, estimatedProfit: 8.5,
+  };
+  const entry = salesVelocityManualReviewEntry(candidate, diagnostic);
+  assert.equal(entry.reason, 'missing_sales_velocity');
+  assert.equal(entry.matchMethod, 'MANUAL_REVIEW');
+  assert.equal(entry.asin, 'B000000000');
+  assert.equal(entry.amazonUrl, 'https://www.amazon.com/dp/B000000000');
+  assert.equal(entry.roi, 150);
 });
 
 test('ScrapingAnt uses cheap static US requests before browser escalation', () => {
