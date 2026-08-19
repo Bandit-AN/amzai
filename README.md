@@ -69,12 +69,14 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `PORTAL_SESSION_SECRET`: a third random secret used only to sign 12-hour student login cookies.
 - `ONBOARDING_VIDEO_URL`: an embeddable HTTPS video URL; leave blank to show the branded placeholder.
 - `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
-- `KEEPA_SEARCH_RESULTS`: number of Amazon candidates evaluated per Walmart product; defaults to `5`.
+- `KEEPA_SEARCH_RESULTS`: number of Amazon candidates evaluated per Walmart product from the direct UPC/EAN code lookup; defaults to `5`, capped at `10`.
 - `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative scheduling budget for a direct UPC/EAN product-code lookup that may return multiple ASINs; defaults to `15`.
+- `KEEPA_TITLE_SEARCH_FALLBACK`: when `true`, a Walmart product whose UPC/EAN finds nothing in Keepa's direct code lookup is also searched by title through Keepa's Product Finder (`/query`). This only widens which ASINs get *considered* — every ASIN it returns still has to expose the same UPC/EAN as the Walmart listing before a deal can qualify, so it cannot loosen matching, only recover candidates Keepa's barcode index doesn't have. Off by default because Product Finder has its own Keepa token cost, separate from and additional to the per-item code lookup; watch token consumption (`/api/admin`, or Keepa's own dashboard) for a few days before leaving it on. Deals found this way are tagged `upcDiscoveryMethod: "title_search"` in run diagnostics, and the run funnel reports `titleSearchFallbackMatches` so you can see how many qualified deals it recovered.
+- `KEEPA_TITLE_SEARCH_RESULTS`: how many ASINs the title-search fallback considers per candidate; defaults to `5`, capped at `10`. Only spent when `KEEPA_TITLE_SEARCH_FALLBACK=true` and the direct code lookup found nothing.
 - `WALMART_DETAIL_LOOKUP_LIMIT`: maximum individual Walmart product pages verified per run; defaults to `50` and is capped at `100`.
 - `WALMART_DISCOVERY_MULTIPLIER`: broad-card discovery pool relative to the detail limit; defaults to `5`, so a 50-detail run can rank up to 250 cards before cooldown and final selection.
 - `MAXIMUM_WALMART_BUY_COST`: global Walmart buy-cost ceiling applied before Gemini and Keepa; defaults to `$150`.
-- `WALMART_RENDER_JS=true` with `WALMART_PREMIUM_PROXY=false`: uses the verified 5-credit page request and automatically retries once with a premium US proxy only for blocking or temporary upstream failures.
+- `WALMART_RENDER_JS=true` with `WALMART_PREMIUM_PROXY=false`: uses the verified 5-credit page request and automatically retries once with a premium US proxy for blocking or temporary upstream failures, including a `200` response that is actually an anti-bot interstitial rather than the real page (detected by the absence of Walmart's page data and known block/CAPTCHA wording).
 - `STUDENT_CACHE_SECONDS`: Redis cache lifetime for the active Airtable roster; defaults to 15 minutes.
 - `PRODUCT_COOLDOWN_SECONDS`: unchanged-product and delivered-ASIN cooldown; defaults to 30 days.
 - `RUN_TTL_SECONDS`: run evidence retention; the service enforces a seven-day minimum so daily funnels remain diagnosable.

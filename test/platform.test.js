@@ -27,8 +27,10 @@ const {
   isRetryableProviderError,
   keepaInitialDelaySeconds,
   keepaProductCodeParams,
+  keepaTitleSearchSelection,
   listingQuantitiesCompatible,
   listingVariantsCompatible,
+  looksLikeBlockedWalmartPage,
   mergeBalancedCandidates,
   normalizeWalmartPayload,
   productIdentityCompatible,
@@ -513,6 +515,26 @@ test('Keepa external-code lookup uses the product code endpoint parameters', () 
   assert.deepEqual(params, { domain: 1, code: '001234567890', stats: 30, history: 0 });
   assert.equal('term' in params, false);
   assert.equal('asin' in params, false);
+});
+
+test('Keepa title-search fallback builds a bounded Product Finder selection', () => {
+  const selection = keepaTitleSearchSelection('  Acme Widget Deluxe 3 Pack  ', 7);
+  assert.deepEqual(selection, {
+    title: 'Acme Widget Deluxe 3 Pack',
+    perPage: 7,
+    sort: [['current_SALES', 'asc']],
+  });
+  const longTerm = 'x'.repeat(500);
+  assert.equal(keepaTitleSearchSelection(longTerm, 5).title.length, 200);
+});
+
+test('detects a Walmart anti-bot interstitial that returned HTTP 200', () => {
+  assert.equal(looksLikeBlockedWalmartPage('<html><body>Robot or human? Please verify.</body></html>'), true);
+  assert.equal(looksLikeBlockedWalmartPage('<html><body>Access to this page has been denied</body></html>'), true);
+  assert.equal(looksLikeBlockedWalmartPage('short'), true);
+  assert.equal(looksLikeBlockedWalmartPage(`<html>${'<!-- padding -->'.repeat(200)}<script id="__NEXT_DATA__">{}</script></html>`), false);
+  assert.equal(looksLikeBlockedWalmartPage(null), false);
+  assert.equal(looksLikeBlockedWalmartPage({ items: [] }), false);
 });
 
 test('canonical English identity can match a localized Walmart title safely', () => {

@@ -73,6 +73,9 @@ export default async function handler(request, response) {
         if (result.funnel?.economicsPassed) {
           await redis.incr(`run:${runId}:funnel:economicsPassed`);
         }
+        if (result.funnel?.titleSearchFallbackMatched) {
+          await redis.incr(`run:${runId}:funnel:titleSearchFallbackMatches`);
+        }
         if (result.deal) {
           await Promise.all([
             redis.rpush(`run:${runId}:qualified`, result.deal),
