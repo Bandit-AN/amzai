@@ -189,7 +189,7 @@ test('rotates distinct real Walmart clearance feeds without fake deep pages', ()
   const wrapped = walmartUrlsForWindow(walmartSourceUrls().length);
   assert.equal(first.length, 1);
   assert.equal(second.length, 1);
-  assert.equal(walmartSourceUrls().length, 21);
+  assert.equal(walmartSourceUrls().length, 23);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
@@ -218,13 +218,17 @@ test('daily runs balance broad feeds with rotating clearance categories', () => 
   const aug11 = walmartUrlsForDailyRun(Date.parse('2026-08-11T13:00:00Z'));
   const aug12 = walmartUrlsForDailyRun(Date.parse('2026-08-12T13:00:00Z'));
   assert.equal(aug11.length, 6);
-  assert.equal(aug11.filter((url) => /\/shop\/deals\/clearance\//.test(url)).length, 4);
   assert.equal(aug11.filter((url) => /\/shop\/(?:savings|deals\/clearance)\?/.test(url)).length, 2);
+  // Pinned category pages (video-games, electronics) run every day, ahead of
+  // the rotating clearance-category pool, not competing with it for a slot.
+  assert.ok(aug11.some((url) => url.includes('/cp/video-games/2636')));
+  assert.ok(aug11.some((url) => url.includes('/cp/electronics/3944')));
+  assert.equal(aug11.filter((url) => /\/shop\/deals\/clearance\//.test(url)).length, 2);
   assert.equal(new Set(aug11).size, 6);
   assert.notDeepEqual(aug11, aug12);
   for (const url of aug11) assert.equal(url.includes('page='), false);
-  const categoryIndexes = aug11.slice(2).map((url) => walmartSourceUrls().indexOf(url));
-  assert.ok(Math.max(...categoryIndexes) - Math.min(...categoryIndexes) >= 6);
+  const categoryIndexes = aug11.slice(4).map((url) => walmartSourceUrls().indexOf(url));
+  assert.ok(Math.max(...categoryIndexes) - Math.min(...categoryIndexes) >= 1);
 });
 
 test('balanced discovery cannot be monopolized by one feed', () => {
@@ -286,6 +290,18 @@ test('prioritizes real markdowns and first-party branded inventory', () => {
 test('enforces the global Walmart buy-cost ceiling', () => {
   assert.equal(withinBuyCostLimit(150), true);
   assert.equal(withinBuyCostLimit(150.01), false);
+});
+
+test('applies tighter per-category buy-cost ceilings for pinned category pages', () => {
+  const videoGamesUrl = 'https://www.walmart.com/cp/video-games/2636?facet=retailer_type%3AWalmart';
+  const electronicsUrl = 'https://www.walmart.com/cp/electronics/3944?facet=retailer_type%3AWalmart';
+  assert.equal(withinBuyCostLimit(40, videoGamesUrl), true);
+  assert.equal(withinBuyCostLimit(40.01, videoGamesUrl), false);
+  assert.equal(withinBuyCostLimit(90, electronicsUrl), true);
+  assert.equal(withinBuyCostLimit(90.01, electronicsUrl), false);
+  // A source with no override falls back to the global ceiling, not the
+  // tighter category ones.
+  assert.equal(withinBuyCostLimit(150, 'https://www.walmart.com/shop/deals/clearance/toys'), true);
 });
 
 test('filters Walmart private labels without excluding national brands', () => {

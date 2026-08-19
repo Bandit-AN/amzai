@@ -77,7 +77,8 @@ export default async function handler(request, response) {
     const excludedNoDealSignal = rawScrapedCandidates.length - dealEligible.length;
     const brandEligible = dealEligible.filter((candidate) => !isExcludedWalmartBrand(candidate));
     const excludedWalmartBrands = dealEligible.length - brandEligible.length;
-    const allBrandEligibleCandidates = brandEligible.filter((candidate) => withinBuyCostLimit(candidate.currentPrice));
+    const allBrandEligibleCandidates = brandEligible.filter((candidate) =>
+      withinBuyCostLimit(candidate.currentPrice, candidate.discoverySourceUrl));
     const excludedBuyCost = brandEligible.length - allBrandEligibleCandidates.length;
     if (allBrandEligibleCandidates.length === 0) {
       throw new Error('No scraped candidates passed the markdown, brand, and buy-cost filters');
