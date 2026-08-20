@@ -898,10 +898,8 @@ test('concurrent and retried Discord workers receive only one delivery claim', a
   assert.equal(await claimDiscordDelivery(fakeRedis, 'run-1', 'student-1', 60), 'delivered');
 });
 
-test('zero-deal Discord message reports analysis errors', () => {
+test('zero-deal Discord message reports candidates searched', () => {
   const payload = emptyDiscordPayload({ name: 'Student' }, { candidateCount: 47, failedCandidates: 3 });
-  assert.match(payload.content, /no products passed/i);
-  assert.match(payload.content, /47 Walmart candidates/);
-  assert.match(payload.content, /3 API or matching errors/);
+  assert.equal(payload.content, '47 products searched, nothing found.');
   assert.deepEqual(payload.embeds, []);
 });
