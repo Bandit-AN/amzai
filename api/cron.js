@@ -61,7 +61,7 @@ export default async function handler(request, response) {
     const explicitWindow = Number.isInteger(requestedWindow);
     const sourceWindow = explicitWindow ? Math.max(0, requestedWindow) : dailyWalmartWindow();
     const sourceUrls = explicitWindow
-      ? walmartUrlsForWindow(sourceWindow)
+      ? walmartUrlsForWindow(sourceWindow, config.walmartPagesPerRun)
       : walmartUrlsForDailyRun();
     const discoveryPoolLimit = Math.min(
       config.maxCandidates,

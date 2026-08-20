@@ -60,14 +60,18 @@ export default async function handler(request, response) {
     if (deliveryJobs.length > 0) await publishBatch(deliveryJobs);
     await redis.set(`run:${runId}:finalized`, true, { ex: config.runTtlSeconds });
     if (Number(meta.continuationRunsRemaining) > 0) {
+      // Advance by however many pages this run's window actually consumed
+      // (meta.sourcePages), not a flat +1, so the next continuation starts
+      // right after them instead of overlapping almost entirely.
+      const nextWindow = Number(meta.sourceWindow) + Number(meta.sourcePages || 1);
       await publishBatch([{
         url: `${config.publicBaseUrl}/api/cron`,
         body: {
-          window: Number(meta.sourceWindow) + 1,
+          window: nextWindow,
           limit: config.maxCandidates,
           continuationRunsRemaining: Number(meta.continuationRunsRemaining) - 1,
         },
-        deduplicationId: `${runId}-continue-${Number(meta.sourceWindow) + 1}`,
+        deduplicationId: `${runId}-continue-${nextWindow}`,
         delaySeconds: 120,
       }]);
     }

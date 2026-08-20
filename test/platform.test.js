@@ -201,6 +201,18 @@ test('rotates distinct real Walmart clearance feeds without fake deep pages', ()
   }
 });
 
+test('a windowed continuation batch can pull multiple consecutive pages, not just one', () => {
+  const multi = walmartUrlsForWindow(0, 5);
+  assert.equal(multi.length, 5);
+  assert.deepEqual(multi, walmartSourceUrls().slice(0, 5));
+  const wrappedMulti = walmartUrlsForWindow(walmartSourceUrls().length - 2, 5);
+  assert.equal(wrappedMulti.length, 5);
+  assert.equal(wrappedMulti[0], walmartSourceUrls().at(-2));
+  assert.equal(wrappedMulti[2], walmartSourceUrls()[0]);
+  const capped = walmartUrlsForWindow(0, walmartSourceUrls().length + 10);
+  assert.equal(capped.length, walmartSourceUrls().length);
+});
+
 test('daily automation rotates real source feeds', () => {
   const aug7 = dailyWalmartWindow(Date.parse('2026-08-07T13:00:00Z'));
   const aug8 = dailyWalmartWindow(Date.parse('2026-08-08T13:00:00Z'));
