@@ -29,6 +29,8 @@ const {
   keepaProductCodeParams,
   keepaTitleSearchSelection,
   listingQuantitiesCompatible,
+  manualReviewDiscordPayload,
+  manualReviewDiscordPayloads,
   listingVariantsCompatible,
   looksLikeBlockedWalmartPage,
   mergeBalancedCandidates,
@@ -868,6 +870,33 @@ test('Discord cards include the mandatory manual IP warning', () => {
     amazonPrice: 30, estimatedProfit: 10, roi: 100, estimatedMonthlySales: 500,
   }]);
   assert.match(payload.embeds[0].fields.at(-1).value, /not verified by Keepa/i);
+});
+
+test('manual-review Discord cards are labeled distinctly from qualified deals', () => {
+  const withAmazonMatch = {
+    title: 'Widget', walmartUrl: 'https://walmart.com/ip/1', currentPrice: 9.99,
+    reason: 'missing_sales_velocity', asin: 'B012345678', amazonUrl: 'https://amazon.com/dp/B012345678',
+    amazonPrice: 24.99, roi: 150, estimatedProfit: 8.5,
+  };
+  const withoutAmazonMatch = {
+    title: 'Gadget', walmartUrl: 'https://walmart.com/ip/2', currentPrice: 14.99,
+    reason: 'walmart_detail_lookup_error',
+  };
+  const payload = manualReviewDiscordPayload({ name: 'Student' }, [withAmazonMatch, withoutAmazonMatch]);
+  assert.match(payload.content, /MANUAL REVIEW/);
+  assert.match(payload.content, /not.*passed/i);
+  assert.equal(payload.embeds[0].color, 0x95a5a6);
+  assert.ok(payload.embeds[0].fields.some((f) => f.name === 'ASIN' && f.value === 'B012345678'));
+  assert.ok(payload.embeds[1].fields.every((f) => f.name !== 'ASIN'));
+  assert.match(payload.embeds[1].fields.find((f) => f.name === 'Why it needs review').value, /could not be re-verified/i);
+});
+
+test('manual-review Discord delivery splits into bounded messages', () => {
+  const entry = { title: 'Item', walmartUrl: 'https://walmart.com/ip/x', currentPrice: 5, reason: 'missing_upc' };
+  const payloads = manualReviewDiscordPayloads({ name: 'Student' }, Array.from({ length: 10 }, () => entry));
+  assert.equal(payloads.length, 3);
+  assert.equal(payloads.reduce((sum, p) => sum + p.embeds.length, 0), 10);
+  assert.match(payloads[0].content, /Part 1 of 3/);
 });
 
 test('Discord delivery splits ten deals into bounded messages', () => {
