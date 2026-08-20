@@ -11,6 +11,7 @@ const {
   analysisDelaySeconds,
   allocateDeals,
   automaticEligibilityReason,
+  bestWalmartMatchForAmazonProduct,
   candidateFingerprint,
   candidatePriority,
   calculateDeal,
@@ -33,6 +34,7 @@ const {
   looksLikeBlockedWalmartPage,
   mergeBalancedCandidates,
   normalizeWalmartPayload,
+  parseTrackedSellers,
   productIdentityCompatible,
   productCodesCompatible,
   productFormsCompatible,
@@ -40,8 +42,11 @@ const {
   sanitizedRetryError,
   scrapingAntRequestOptions,
   selectUnseenCandidates,
+  storefrontDiscordPayload,
+  storefrontDiscordPayloads,
   upcTitleIdentityCompatible,
   verifyStudentPassword,
+  walmartSearchUrl,
   walmartSourceUrls,
   walmartUrlsForDailyRun,
   walmartUrlsForWindow,
@@ -914,4 +919,89 @@ test('zero-deal Discord message reports candidates searched', () => {
   const payload = emptyDiscordPayload({ name: 'Student' }, { candidateCount: 47, failedCandidates: 3 });
   assert.equal(payload.content, '47 products searched, nothing found.');
   assert.deepEqual(payload.embeds, []);
+});
+
+test('parses tracked Amazon sellers with optional labels', () => {
+  assert.deepEqual(
+    parseTrackedSellers('A2L77EE7U53NWQ:Amazon Warehouse, A1B2C3D4E5F6G7'),
+    [
+      { sellerId: 'A2L77EE7U53NWQ', label: 'Amazon Warehouse' },
+      { sellerId: 'A1B2C3D4E5F6G7', label: 'A1B2C3D4E5F6G7' },
+    ],
+  );
+  assert.deepEqual(parseTrackedSellers(''), []);
+  assert.deepEqual(parseTrackedSellers(undefined), []);
+});
+
+test('builds a retailer-filtered Walmart search URL', () => {
+  const url = walmartSearchUrl('Skil 20V battery charger');
+  assert.match(url, /^https:\/\/www\.walmart\.com\/search\?/);
+  assert.match(url, /q=Skil\+20V\+battery\+charger/);
+  assert.match(url, /retailer_type%3AWalmart/);
+});
+
+test('finds the best economically-qualifying Walmart match for a tracked Amazon product', () => {
+  const amazonProduct = {
+    asin: 'B0C4K91FHR',
+    title: 'SKIL PWR CORE 20 20V Battery and Charger Starter Kit, Includes 4.0 Ah Battery-CB5196B-11',
+    brand: 'Skil',
+    upcList: ['195532200568'],
+    eanList: [],
+    stats: { current: [9900, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1] },
+    monthlySold: 100,
+    fbaFees: { pickAndPackFee: 500 },
+    referralFeePercentage: 15,
+  };
+  const walmartCandidates = [
+    {
+      title: 'Skil CB5196B-11 20V PWRCORE 20 Battery and Charger Starter Kit (4 Ah)',
+      currentPrice: 53.19,
+      upc: '195532200568',
+      variantId: '14059371010',
+      walmartUrl: 'https://www.walmart.com/ip/14059371010',
+      onlineAvailable: true,
+    },
+    {
+      title: 'Completely Unrelated Kitchen Sponge',
+      currentPrice: 3,
+      upc: '000000000000',
+      variantId: 'x',
+      walmartUrl: 'https://www.walmart.com/ip/x',
+      onlineAvailable: true,
+    },
+  ];
+  const best = bestWalmartMatchForAmazonProduct(amazonProduct, walmartCandidates);
+  assert.ok(best);
+  assert.equal(best.asin, 'B0C4K91FHR');
+  assert.equal(best.currentPrice, 53.19);
+  assert.ok(best.roi > 60);
+});
+
+test('storefront Discord cards distinguish a qualified match from a plain new-listing alert', () => {
+  const matched = {
+    asin: 'B0C4K91FHR', amazonTitle: 'Skil Battery Kit', amazonUrl: 'https://amazon.com/dp/B0C4K91FHR',
+    amazonPrice: 99, imageUrl: null,
+    walmartMatch: {
+      currentPrice: 53.19, roi: 86.1, estimatedProfit: 22.18, walmartUrl: 'https://walmart.com/ip/1',
+    },
+  };
+  const unmatched = {
+    asin: 'B0OTHER', amazonTitle: 'Some Other Product', amazonUrl: 'https://amazon.com/dp/B0OTHER',
+    amazonPrice: 15, imageUrl: null, walmartMatch: null,
+  };
+  const payload = storefrontDiscordPayload('Acme Storefront', [matched, unmatched]);
+  assert.match(payload.content, /NEW LISTING/);
+  assert.match(payload.content, /Acme Storefront/);
+  assert.equal(payload.embeds[0].color, 0xf1c40f);
+  assert.ok(payload.embeds[0].fields.some((f) => f.name === 'Walmart cost'));
+  assert.equal(payload.embeds[1].color, 0x3498db);
+  assert.ok(payload.embeds[1].fields.some((f) => f.name === 'Sourcing match'));
+});
+
+test('storefront Discord delivery splits into bounded messages', () => {
+  const listing = { asin: 'X', amazonTitle: 'Item', amazonUrl: 'https://amazon.com/dp/X', amazonPrice: 10, walmartMatch: null };
+  const payloads = storefrontDiscordPayloads('Acme', Array.from({ length: 9 }, () => listing));
+  assert.equal(payloads.length, 3);
+  assert.equal(payloads.reduce((sum, p) => sum + p.embeds.length, 0), 9);
+  assert.match(payloads[0].content, /Part 1 of 3/);
 });

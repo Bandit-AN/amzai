@@ -4,6 +4,10 @@
     {
       "path": "/api/cron?continuationRunsRemaining=3",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/storefronts",
+      "schedule": "0 */6 * * *"
     }
   ],
   "functions": {
@@ -15,6 +19,7 @@
     "api/finalize.js": { "maxDuration": 30 },
     "api/status.js": { "maxDuration": 10 },
     "api/student.js": { "maxDuration": 10 },
+    "api/storefronts.js": { "maxDuration": 120 },
     "api/worker.js": { "maxDuration": 30 }
   }
 }
