@@ -24,6 +24,7 @@ const {
   hashStudentPassword,
   hasWalmartDealSignal,
   isExcludedProductType,
+  isBlockedStorefrontBrand,
   isExcludedWalmartBrand,
   isRetryableProviderError,
   keepaInitialDelaySeconds,
@@ -1004,4 +1005,11 @@ test('storefront Discord delivery splits into bounded messages', () => {
   assert.equal(payloads.length, 3);
   assert.equal(payloads.reduce((sum, p) => sum + p.embeds.length, 0), 9);
   assert.match(payloads[0].content, /Part 1 of 3/);
+});
+
+test('storefront tracking never alerts on gated/high-IP-risk brands by default', () => {
+  assert.equal(isBlockedStorefrontBrand({ title: 'Nike Air Max 90 Running Shoes', brand: 'Nike' }), true);
+  assert.equal(isBlockedStorefrontBrand({ title: 'Hot Wheels Monster Trucks 5-Pack', brand: '' }), true);
+  assert.equal(isBlockedStorefrontBrand({ title: 'Milwaukee M18 Cordless Drill Kit' }), true);
+  assert.equal(isBlockedStorefrontBrand({ title: 'Generic Widget 12 Pack', brand: 'Acme' }), false);
 });

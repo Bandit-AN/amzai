@@ -7,6 +7,7 @@ import {
   fetchSellerStorefrontAsins,
   fetchWalmartCatalog,
   hydrateKeepaProductsByAsin,
+  isBlockedStorefrontBrand,
   isRetryableProviderError,
   jsonResponse,
   redis,
@@ -109,7 +110,9 @@ export default async function handler(request, response) {
       }
 
       const toCheck = newAsins.slice(0, config.storefrontNewListingsPerRunLimit);
-      const products = await hydrateKeepaProductsByAsin(toCheck);
+      const hydrated = await hydrateKeepaProductsByAsin(toCheck);
+      const blockedCount = hydrated.filter(isBlockedStorefrontBrand).length;
+      const products = hydrated.filter((product) => !isBlockedStorefrontBrand(product));
       const newListings = [];
       for (const product of products) {
         let walmartMatch = null;
@@ -140,6 +143,7 @@ export default async function handler(request, response) {
         sellerName: seller.sellerName,
         newListings: newListings.length,
         qualifiedMatches: newListings.filter((listing) => listing.walmartMatch).length,
+        blockedBrandListings: blockedCount,
       });
     }
     return jsonResponse(response, 200, { ok: true, sellers });
