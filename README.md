@@ -88,7 +88,7 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 
 Set `TARGET_ENABLED=true`, `TARGET_ZIP_CODE` to the online-shopping ZIP used for availability, and `TARGET_DETAIL_LOOKUP_LIMIT` to the maximum Target detail pages checked per audit (defaults to 25 and is capped at 50). `TARGET_EXCLUDED_BRANDS` removes Target-owned labels before Keepa work.
 
-An authorized `GET /api/target` scans Target clearance feeds for toys, home, and electronics alongside the main clearance feed. Target pages use browser rendering because their category cards and offer availability are client-rendered. Candidates then use the same UPC-first detail verification, Keepa identity matching, economics, and stock checks as Walmart.
+An authorized `GET /api/target` rotates through Target clearance feeds for toys, home, electronics, and the main clearance feed. It renders one feed per invocation to stay inside Vercel's function timeout and ScrapingAnt's single-concurrency free tier. Target pages use browser rendering because their category cards and offer availability are client-rendered. Candidates then use the same UPC-first detail verification, Keepa identity matching, economics, and stock checks as Walmart.
 
 Target runs are deliberately created with `auditMode: true`: qualified matches remain in the admin audit queue and are never sent to student Discord channels. Keep this safeguard enabled until every Target lead in a controlled cohort has been manually confirmed. Target scans are manual during the prototype and are not included in `vercel.json` cron schedules.
 

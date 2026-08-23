@@ -44,7 +44,12 @@ export default async function handler(request, response) {
       }
     }
 
-    const sourceUrls = targetSourceUrls();
+    const availableSourceUrls = targetSourceUrls();
+    const sourceWindow = Math.max(0, (await redis.incr('target:sourceWindow')) - 1);
+    // ScrapingAnt's rendered-browser free tier is single-concurrency, while a
+    // Vercel invocation is bounded. Rotate one feed per request instead of
+    // serially rendering every Target department until the function times out.
+    const sourceUrls = [availableSourceUrls[sourceWindow % availableSourceUrls.length]];
     const candidateLimit = config.targetDetailLookupLimit;
     const discoveryPoolLimit = Math.min(config.maxCandidates, candidateLimit * 5);
     const [students, discovered] = await Promise.all([
@@ -86,10 +91,11 @@ export default async function handler(request, response) {
       excludedNoDealSignal: discovered.length - dealEligible.length,
       excludedBuyCost: brandEligible.length - costEligible.length,
       skippedRecentlyAnalyzed: costEligible.length - fresh.length,
-      sourceWindow: 0,
+      sourceWindow,
       sourceUrl: sourceUrls[0],
       sourceUrls,
       sourcePages: sourceUrls.length,
+      availableSourcePages: availableSourceUrls.length,
       sourceCandidateCounts: Object.fromEntries(sourceUrls.map((url) => [
         url, discovered.filter((candidate) => candidate.discoverySourceUrl === url).length,
       ])),
@@ -133,6 +139,8 @@ export default async function handler(request, response) {
       freshCandidates: fresh.length,
       candidates: candidates.length,
       sourcePages: sourceUrls.length,
+      availableSourcePages: availableSourceUrls.length,
+      sourceUrl: sourceUrls[0],
       estimatedAnalysisMinutes: Math.ceil(analysisDelaySeconds(
         Math.max(0, chunks.length - 1), effectiveRefillRate,
         config.keepaTokensPerCandidate, initialDelaySeconds, keepaStatus.tokensLeft,
