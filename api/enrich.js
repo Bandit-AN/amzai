@@ -2,7 +2,7 @@ import {
   analysisDelaySeconds,
   automaticEligibilityReason,
   config,
-  enrichWalmartCandidate,
+  enrichRetailerCandidate,
   isRetryableProviderError,
   jsonResponse,
   manualReviewEntry,
@@ -67,7 +67,7 @@ export default async function handler(request, response) {
     );
     if (firstAttempt) await redis.incr(`run:${runId}:funnel:detailPagesChecked`);
 
-    const enriched = await enrichWalmartCandidate(candidate);
+    const enriched = await enrichRetailerCandidate(candidate);
     await redis.set(`run:${runId}:detail:${chunkIndex}`, enriched, { ex: config.runTtlSeconds });
 
     if (enriched.detailVerified && enriched.upc) {
@@ -147,11 +147,12 @@ export default async function handler(request, response) {
     );
     return jsonResponse(response, 202, { ok: true, runId, chunkIndex, queuedForAnalysis: true });
   } catch (error) {
-    if (isRetryableProviderError(error)) throw sanitizedRetryError(error, 'Walmart detail lookup');
+    if (isRetryableProviderError(error)) throw sanitizedRetryError(error, 'Retailer detail lookup');
     console.error(JSON.stringify({ event: 'enrichment_failed', runId, chunkIndex, message: error.message }));
     if (runId && Number.isInteger(chunkIndex) && candidate && meta) {
       try {
-        const reason = 'walmart_detail_lookup_error';
+        const reason = candidate?.sourceRetailer === 'Target'
+          ? 'target_detail_lookup_error' : 'walmart_detail_lookup_error';
         const fallback = manualReviewEntry({
           ...candidate, detailVerified: false, onlineAvailable: false,
         }, reason);

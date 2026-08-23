@@ -24,6 +24,7 @@ const {
   hashStudentPassword,
   hasWalmartDealSignal,
   isExcludedProductType,
+  isExcludedTargetBrand,
   isBlockedStorefrontBrand,
   isExcludedWalmartBrand,
   isRetryableProviderError,
@@ -35,6 +36,7 @@ const {
   looksLikeBlockedWalmartPage,
   mergeBalancedCandidates,
   normalizeWalmartPayload,
+  normalizeTargetPayload,
   parseTrackedSellers,
   productIdentityCompatible,
   productCodesCompatible,
@@ -91,6 +93,36 @@ test('normalizes and deduplicates Walmart candidates by item ID', () => {
   assert.equal(products.length, 1);
   assert.equal(products[0].itemId, '12345');
   assert.equal(products[0].currentPrice, 9.99);
+});
+
+test('normalizes rendered Target clearance cards', () => {
+  const [product] = normalizeTargetPayload(`
+    <li data-test="ProductCard">
+      <a href="/p/acme-widget/-/A-94747328" aria-label="Acme Widget 2 Pack">
+        <img alt="Acme Widget 2 Pack" src="https://target.scene7.com/widget.jpg">
+      </a>
+      <h2>Acme Widget 2 Pack</h2>
+      <span>$7.41</span><span>reg $12.99</span><button>Add to cart</button>
+    </li>`);
+  assert.equal(product.itemId, '94747328');
+  assert.equal(product.currentPrice, 7.41);
+  assert.equal(product.originalPrice, 12.99);
+  assert.equal(product.onlineAvailable, true);
+  assert.equal(product.sourceRetailer, 'Target');
+});
+
+test('extracts Target detail UPC and rejects configured private labels', () => {
+  const [product] = normalizeTargetPayload({ item: {
+    tcin: '94747328',
+    product_description: { title: 'Cat & Jack Kids Shirt' },
+    primary_barcode: '5010996396754',
+    primary_brand: { name: 'Cat & Jack' },
+    price: { current_retail: 7.41, reg_retail: 12.99 },
+    fulfillment: { shipping_options: { availability_status: 'IN_STOCK' } },
+  } });
+  assert.equal(product.upc, '5010996396754');
+  assert.equal(product.onlineAvailable, true);
+  assert.equal(isExcludedTargetBrand(product), true);
 });
 
 test('preserves Walmart original price and UPC when present', () => {
