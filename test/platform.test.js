@@ -125,6 +125,23 @@ test('extracts Target detail UPC and rejects configured private labels', () => {
   assert.equal(isExcludedTargetBrand(product), true);
 });
 
+test('merges Target identity and offer state by TCIN', () => {
+  const [product] = normalizeTargetPayload({ state: [
+    {
+      tcin: '94747328', product_description: { title: 'Acme Card Game' },
+      primary_barcode: '5010996396754', primary_brand: { name: 'Acme' },
+    },
+    {
+      tcin: '94747328', title: 'Acme Card Game',
+      price: { current_retail: 7.41, reg_retail: 12.99 },
+      availability: 'IN_STOCK',
+    },
+  ] });
+  assert.equal(product.upc, '5010996396754');
+  assert.equal(product.currentPrice, 7.41);
+  assert.equal(product.onlineAvailable, true);
+});
+
 test('preserves Walmart original price and UPC when present', () => {
   const [product] = normalizeWalmartPayload({ items: [{
     name: 'Acme Widget 12 Count', price: '$10.00', originalPrice: '$20.00',

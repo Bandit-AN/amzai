@@ -125,7 +125,10 @@ export default async function handler(request, response) {
       url: `${config.publicBaseUrl}/api/enrich`,
       body: { runId, chunkIndex },
       deduplicationId: `${runId}-target-enrich-${chunkIndex}`,
-      delaySeconds: chunkIndex * 10,
+      // Target browser renders routinely take 25–40 seconds. Keep every job
+      // outside the prior job's window so ScrapingAnt's one-concurrent-request
+      // free tier does not return 403 for otherwise valid requests.
+      delaySeconds: chunkIndex * 60,
     })));
     console.log(JSON.stringify({
       event: 'target_run_queued', runId, discovered: discovered.length, candidates: candidates.length,
@@ -141,10 +144,13 @@ export default async function handler(request, response) {
       sourcePages: sourceUrls.length,
       availableSourcePages: availableSourceUrls.length,
       sourceUrl: sourceUrls[0],
-      estimatedAnalysisMinutes: Math.ceil(analysisDelaySeconds(
+      estimatedAnalysisMinutes: Math.max(
+        Math.ceil(Math.max(0, chunks.length - 1) * 60 / 60),
+        Math.ceil(analysisDelaySeconds(
         Math.max(0, chunks.length - 1), effectiveRefillRate,
         config.keepaTokensPerCandidate, initialDelaySeconds, keepaStatus.tokensLeft,
-      ) / 60),
+        ) / 60),
+      ),
     });
   } catch (error) {
     console.error(JSON.stringify({ event: 'target_cron_failed', message: error.message }));
