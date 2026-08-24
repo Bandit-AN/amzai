@@ -66,6 +66,11 @@ export default async function handler(request, response) {
       config.walmartDetailLookupLimit,
     );
     const continuingCollection = typeof input.collectionId === 'string' && input.collectionId.length > 0;
+    // Explicit operator override for an already-collected cohort. The default
+    // remains a hard 100; this only lets an authenticated request launch a
+    // preserved short cohort after the operator approves the shortfall.
+    const allowPartialCollection = continuingCollection
+      && (input.allowPartialCollection === true || input.allowPartialCollection === 'true');
     const collectionId = continuingCollection ? input.collectionId : randomUUID();
     activeCollectionId = collectionId;
     if (!continuingCollection) {
@@ -138,7 +143,8 @@ export default async function handler(request, response) {
       skippedRecentlyAnalyzed: Number(previousCollection?.skippedRecentlyAnalyzed || 0) + skippedRecentlyAnalyzed,
       sourceUrls: [...new Set([...(previousCollection?.sourceUrls || []), ...sourceUrls])],
     };
-    if (!refresh && collectedCandidates.length < candidateLimit && pagesScanned < totalSourcePages) {
+    if (!refresh && !allowPartialCollection
+      && collectedCandidates.length < candidateLimit && pagesScanned < totalSourcePages) {
       await redis.set(collectionKey, collection, { ex: config.runTtlSeconds });
       await publishMessage({
         url: `${config.publicBaseUrl}/api/cron`,
@@ -158,7 +164,7 @@ export default async function handler(request, response) {
         nextWindow: collection.nextWindow,
       });
     }
-    if (!refresh && collectedCandidates.length < candidateLimit) {
+    if (!refresh && !allowPartialCollection && collectedCandidates.length < candidateLimit) {
       collection.status = 'exhausted';
       await redis.set(collectionKey, collection, { ex: config.runTtlSeconds });
       await redis.del('walmart:freshCollection:active');
@@ -222,6 +228,7 @@ export default async function handler(request, response) {
       notSelectedAfterLimit,
       continuationRunsRemaining: Math.max(0, Number.parseInt(input.continuationRunsRemaining, 10) || 0),
       auditMode: input.audit === true || input.audit === 'true',
+      partialCollectionApproved: allowPartialCollection,
       staged: false,
       funnelVersion: 2,
       totalChunks: chunks.length,
