@@ -322,7 +322,9 @@ test('includes retailer-filtered Walmart clearance category feeds', () => {
   assert.ok(sources.some((url) => url.includes('/clearance/toys')));
   assert.ok(sources.some((url) => url.includes('/clearance/household-essentials')));
   assert.ok(sources.some((url) => url.includes('/clearance/office-and-activities')));
-  assert.equal(sources.filter((url) => url.includes('/flash-deals?') && url.includes('page=')).length, 20);
+  assert.equal(sources.filter((url) => url.includes('/flash-deals?') && url.includes('page=')).length, 5);
+  assert.ok(sources.some((url) => url.includes('/shop/deals/electronics/shop-by-price')));
+  assert.ok(sources.some((url) => url.includes('/shop/deals/toys/deals-under-25-dollars')));
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 
