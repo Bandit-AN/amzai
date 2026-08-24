@@ -90,7 +90,7 @@ Set `TARGET_ENABLED=true`, `TARGET_ZIP_CODE` to the online-shopping ZIP used for
 
 An authorized `GET /api/target` rotates through Target clearance feeds for toys, home, electronics, and the main clearance feed. It renders one feed per invocation to stay inside Vercel's function timeout and ScrapingAnt's single-concurrency free tier. Target pages use browser rendering because their category cards and offer availability are client-rendered. Candidates then use the same UPC-first detail verification, Keepa identity matching, economics, and stock checks as Walmart.
 
-Target runs are deliberately created with `auditMode: true`: qualified matches remain in the admin audit queue and are never sent to student Discord channels. Keep this safeguard enabled until every Target lead in a controlled cohort has been manually confirmed. Target scans are manual during the prototype and are not included in `vercel.json` cron schedules.
+`TARGET_VERIFY_ONLINE_AVAILABILITY=false` temporarily allows exact Target matches to proceed when Target does not expose a provable shipping state; delivered cards must therefore be treated as leads whose stock needs manual confirmation. Set it to `true` once shipping-state extraction is reliable. `TARGET_AUDIT_MODE=false` sends economically qualified exact matches through the normal Discord delivery path; set it to `true` to retain them in the admin audit queue instead. Target scans remain manual during the prototype and are not included in `vercel.json` cron schedules.
 
 Generate secrets locally:
 

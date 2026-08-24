@@ -56,6 +56,10 @@ export default async function handler(request, response) {
     if (!student || !Array.isArray(deals)) throw new Error('Student or assignment was not found');
 
     const availabilityChecks = await Promise.all(deals.map(async (deal) => {
+      if (String(deal.sourceRetailer || '').toLowerCase() === 'target'
+        && !config.targetVerifyOnlineAvailability) {
+        return { deal, available: true };
+      }
       try {
         return { deal, available: await confirmWalmartAvailability(deal) };
       } catch (error) {

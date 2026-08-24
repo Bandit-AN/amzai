@@ -103,7 +103,7 @@ export default async function handler(request, response) {
       freshCandidateCount: fresh.length,
       notSelectedAfterLimit: Math.max(0, fresh.length - candidates.length),
       continuationRunsRemaining: 0,
-      auditMode: true,
+      auditMode: config.targetAuditMode,
       staged: false,
       funnelVersion: 2,
       totalChunks: chunks.length,
@@ -135,7 +135,7 @@ export default async function handler(request, response) {
     }));
     return jsonResponse(response, 202, {
       ok: true,
-      auditMode: true,
+      auditMode: config.targetAuditMode,
       retailer: 'Target',
       runId,
       discovered: discovered.length,
