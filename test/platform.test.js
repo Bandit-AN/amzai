@@ -244,7 +244,7 @@ test('rotates distinct real Walmart clearance feeds without fake deep pages', ()
   const wrapped = walmartUrlsForWindow(walmartSourceUrls().length);
   assert.equal(first.length, 1);
   assert.equal(second.length, 1);
-  assert.equal(walmartSourceUrls().length, 52);
+  assert.equal(walmartSourceUrls().length, 67);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
@@ -276,7 +276,7 @@ test('daily automation rotates real source feeds', () => {
   assert.equal(aug9, (aug8 + 1) % walmartSourceUrls().length);
   for (const window of [aug7, aug8, aug9]) {
     const urls = walmartUrlsForWindow(window);
-    assert.equal(urls[0].includes('page='), false);
+    if (urls[0].includes('page=')) assert.match(urls[0], /\/shop\/deals\/flash-deals/);
     assert.equal(urls.length, 1);
   }
 });
@@ -325,6 +325,8 @@ test('includes retailer-filtered Walmart clearance category feeds', () => {
   assert.equal(sources.filter((url) => url.includes('/flash-deals?') && url.includes('page=')).length, 5);
   assert.ok(sources.some((url) => url.includes('/shop/deals/electronics/shop-by-price')));
   assert.ok(sources.some((url) => url.includes('/shop/deals/toys/deals-under-25-dollars')));
+  assert.ok(sources.some((url) => url.includes('/shop/deals/new-price-drops/office-and-crafts')));
+  assert.ok(sources.some((url) => url.includes('/shop/deals/advertised-deals/fitness-and-sports')));
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 
