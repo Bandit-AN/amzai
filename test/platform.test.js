@@ -244,7 +244,7 @@ test('rotates distinct real Walmart clearance feeds without fake deep pages', ()
   const wrapped = walmartUrlsForWindow(walmartSourceUrls().length);
   assert.equal(first.length, 1);
   assert.equal(second.length, 1);
-  assert.equal(walmartSourceUrls().length, 67);
+  assert.equal(walmartSourceUrls().length, 80);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
@@ -327,6 +327,8 @@ test('includes retailer-filtered Walmart clearance category feeds', () => {
   assert.ok(sources.some((url) => url.includes('/shop/deals/toys/deals-under-25-dollars')));
   assert.ok(sources.some((url) => url.includes('/shop/deals/new-price-drops/office-and-crafts')));
   assert.ok(sources.some((url) => url.includes('/shop/deals/advertised-deals/fitness-and-sports')));
+  assert.ok(sources.some((url) => url.includes('/shop/deals/toys/action-figures')));
+  assert.ok(sources.some((url) => url.includes('/shop/deals/toys/games-and-puzzles')));
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 
