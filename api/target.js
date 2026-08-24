@@ -44,8 +44,12 @@ export default async function handler(request, response) {
       }
     }
 
+    const requestUrl = new URL(request.url, config.publicBaseUrl);
+    const requestedSource = Number.parseInt(requestUrl.searchParams.get('source'), 10);
+    const manualRecheck = requestUrl.searchParams.get('recheck') === 'true';
     const availableSourceUrls = targetSourceUrls();
-    const sourceWindow = Math.max(0, (await redis.incr('target:sourceWindow')) - 1);
+    const sourceWindow = Number.isInteger(requestedSource) && requestedSource >= 0
+      ? requestedSource : Math.max(0, (await redis.incr('target:sourceWindow')) - 1);
     // ScrapingAnt's rendered-browser free tier is single-concurrency, while a
     // Vercel invocation is bounded. Rotate one feed per request instead of
     // serially rendering every Target department until the function times out.
@@ -61,7 +65,7 @@ export default async function handler(request, response) {
     const dealEligible = discovered.filter(hasWalmartDealSignal);
     const brandEligible = dealEligible.filter((candidate) => !isExcludedTargetBrand(candidate));
     const costEligible = brandEligible.filter((candidate) => withinBuyCostLimit(candidate.currentPrice));
-    const fresh = await filterRecentlyAnalyzedCandidates(costEligible);
+    const fresh = manualRecheck ? costEligible : await filterRecentlyAnalyzedCandidates(costEligible);
     const candidates = fresh.slice(0, candidateLimit);
     if (candidates.length === 0) {
       return jsonResponse(response, 200, {
@@ -112,6 +116,7 @@ export default async function handler(request, response) {
       keepaTokensPerMinute: effectiveRefillRate,
       initialDelaySeconds,
       targetZipCode: config.targetZipCode,
+      manualRecheck,
     };
     await Promise.all([
       redis.set(`run:${runId}:meta`, run, { ex: config.runTtlSeconds }),
