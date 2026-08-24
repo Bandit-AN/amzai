@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   analysisDelaySeconds,
+  candidateFingerprint,
   config,
   dailyWalmartWindow,
   fetchActiveStudents,
@@ -10,20 +11,23 @@ import {
   filterRecentlyAnalyzedCandidates,
   getRunSummary,
   hasWalmartDealSignal,
+  isRetryableProviderError,
   isExcludedWalmartBrand,
   jsonResponse,
   keepaInitialDelaySeconds,
   publishBatch,
+  publishMessage,
   readJsonBody,
   redis,
   requireEnvironment,
-  walmartUrlsForDailyRun,
   walmartUrlsForWindow,
+  walmartSourceUrls,
   withinBuyCostLimit,
   workerAuthorized,
 } from '../lib/platform.js';
 
 export default async function handler(request, response) {
+  let activeCollectionId;
   if (!['GET', 'POST'].includes(request.method)) return jsonResponse(response, 405, { error: 'Method not allowed' });
   const internalRequest = request.method === 'POST' && workerAuthorized(request);
   if (!internalRequest && config.cronSecret && request.headers.authorization !== `Bearer ${config.cronSecret}`) {
@@ -61,12 +65,25 @@ export default async function handler(request, response) {
       config.maxCandidates,
       config.walmartDetailLookupLimit,
     );
+    const continuingCollection = typeof input.collectionId === 'string' && input.collectionId.length > 0;
+    const collectionId = continuingCollection ? input.collectionId : randomUUID();
+    activeCollectionId = collectionId;
+    if (!continuingCollection) {
+      const claimed = await redis.set('walmart:freshCollection:active', collectionId, {
+        nx: true, ex: config.runTtlSeconds,
+      });
+      if (!claimed) {
+        return jsonResponse(response, 409, {
+          ok: false,
+          error: 'A fresh-product collection is already active',
+          collectionId: await redis.get('walmart:freshCollection:active'),
+        });
+      }
+    }
     const requestedWindow = Number.parseInt(input.window, 10);
     const explicitWindow = Number.isInteger(requestedWindow);
     const sourceWindow = explicitWindow ? Math.max(0, requestedWindow) : dailyWalmartWindow();
-    const sourceUrls = explicitWindow
-      ? walmartUrlsForWindow(sourceWindow, config.walmartPagesPerRun)
-      : walmartUrlsForDailyRun();
+    const sourceUrls = walmartUrlsForWindow(sourceWindow, config.walmartPagesPerRun);
     const discoveryPoolLimit = Math.min(
       config.maxCandidates,
       candidateLimit * config.walmartDiscoveryMultiplier,
@@ -92,26 +109,72 @@ export default async function handler(request, response) {
       ? allBrandEligibleCandidates
       : await filterRecentlyAnalyzedCandidates(allBrandEligibleCandidates);
     const skippedRecentlyAnalyzed = allBrandEligibleCandidates.length - freshEligibleCandidates.length;
-    if (!refresh && freshEligibleCandidates.length < candidateLimit) {
-      return jsonResponse(response, 409, {
-        ok: false,
-        skipped: true,
-        reason: 'Not enough fresh eligible products to launch a full cohort',
+    const collectionKey = `walmart:freshCollection:${collectionId}`;
+    const previousCollection = continuingCollection ? await redis.get(collectionKey) : null;
+    const priorCandidates = Array.isArray(previousCollection?.candidates) ? previousCollection.candidates : [];
+    const mergedByFingerprint = new Map(priorCandidates.map((candidate) => [
+      candidateFingerprint(candidate), candidate,
+    ]));
+    for (const candidate of freshEligibleCandidates) {
+      mergedByFingerprint.set(candidateFingerprint(candidate), candidate);
+    }
+    const collectedCandidates = [...mergedByFingerprint.values()];
+    const pagesScanned = Number(previousCollection?.pagesScanned || 0) + sourceUrls.length;
+    const totalSourcePages = walmartSourceUrls().length;
+    const collection = {
+      collectionId,
+      createdAt: previousCollection?.createdAt || new Date().toISOString(),
+      status: collectedCandidates.length >= candidateLimit ? 'ready' : 'collecting',
+      candidates: collectedCandidates,
+      pagesScanned,
+      totalSourcePages,
+      startWindow: Number(previousCollection?.startWindow ?? sourceWindow),
+      nextWindow: sourceWindow + sourceUrls.length,
+      discoveredCount: Number(previousCollection?.discoveredCount || 0) + rawScrapedCandidates.length,
+      initiallyEligibleCount: Number(previousCollection?.initiallyEligibleCount || 0) + allBrandEligibleCandidates.length,
+      excludedNoDealSignal: Number(previousCollection?.excludedNoDealSignal || 0) + excludedNoDealSignal,
+      excludedWalmartBrands: Number(previousCollection?.excludedWalmartBrands || 0) + excludedWalmartBrands,
+      excludedBuyCost: Number(previousCollection?.excludedBuyCost || 0) + excludedBuyCost,
+      skippedRecentlyAnalyzed: Number(previousCollection?.skippedRecentlyAnalyzed || 0) + skippedRecentlyAnalyzed,
+      sourceUrls: [...new Set([...(previousCollection?.sourceUrls || []), ...sourceUrls])],
+    };
+    if (!refresh && collectedCandidates.length < candidateLimit && pagesScanned < totalSourcePages) {
+      await redis.set(collectionKey, collection, { ex: config.runTtlSeconds });
+      await publishMessage({
+        url: `${config.publicBaseUrl}/api/cron`,
+        body: { collectionId, window: collection.nextWindow },
+        deduplicationId: `${collectionId}-discover-${collection.nextWindow}`,
+        delaySeconds: config.walmartDetailJobSpacingSeconds,
+      });
+      return jsonResponse(response, 202, {
+        ok: true,
+        collecting: true,
+        collectionId,
+        collectedFreshEligible: collectedCandidates.length,
         requiredFreshEligible: candidateLimit,
-        freshEligible: freshEligibleCandidates.length,
-        shortfall: candidateLimit - freshEligibleCandidates.length,
-        scrapedCandidates: rawScrapedCandidates.length,
-        initiallyEligible: allBrandEligibleCandidates.length,
-        excludedNoDealSignal,
-        excludedWalmartBrands,
-        excludedBuyCost,
-        skippedRecentlyAnalyzed,
-        sourceWindow,
-        sourceUrls,
+        remaining: candidateLimit - collectedCandidates.length,
+        pagesScanned,
+        totalSourcePages,
+        nextWindow: collection.nextWindow,
       });
     }
-    const candidates = freshEligibleCandidates.slice(0, candidateLimit);
-    const notSelectedAfterLimit = Math.max(0, freshEligibleCandidates.length - candidates.length);
+    if (!refresh && collectedCandidates.length < candidateLimit) {
+      collection.status = 'exhausted';
+      await redis.set(collectionKey, collection, { ex: config.runTtlSeconds });
+      await redis.del('walmart:freshCollection:active');
+      return jsonResponse(response, 409, {
+        ok: false,
+        collectionId,
+        reason: 'The entire Walmart source catalog was exhausted before 100 fresh eligible products were found',
+        requiredFreshEligible: candidateLimit,
+        collectedFreshEligible: collectedCandidates.length,
+        shortfall: candidateLimit - collectedCandidates.length,
+        pagesScanned,
+        totalSourcePages,
+      });
+    }
+    const candidates = collectedCandidates.slice(0, candidateLimit);
+    const notSelectedAfterLimit = Math.max(0, collectedCandidates.length - candidates.length);
     if (candidates.length === 0) {
       return jsonResponse(response, 200, {
         ok: true,
@@ -138,24 +201,24 @@ export default async function handler(request, response) {
       status: 'analyzing',
       students,
       candidateCount: candidates.length,
-      discoveredCount: rawScrapedCandidates.length,
-      initiallyEligibleCount: allBrandEligibleCandidates.length,
-      scrapedCandidateCount: rawScrapedCandidates.length,
-      excludedWalmartBrands,
-      excludedNoDealSignal,
-      excludedBuyCost,
-      skippedRecentlyAnalyzed,
-      sourceWindow,
-      sourceUrl: sourceUrls[0],
-      sourceUrls,
-      sourcePages: sourceUrls.length,
+      discoveredCount: collection.discoveredCount,
+      initiallyEligibleCount: collection.initiallyEligibleCount,
+      scrapedCandidateCount: collection.discoveredCount,
+      excludedWalmartBrands: collection.excludedWalmartBrands,
+      excludedNoDealSignal: collection.excludedNoDealSignal,
+      excludedBuyCost: collection.excludedBuyCost,
+      skippedRecentlyAnalyzed: collection.skippedRecentlyAnalyzed,
+      sourceWindow: collection.startWindow,
+      sourceUrl: collection.sourceUrls[0],
+      sourceUrls: collection.sourceUrls,
+      sourcePages: collection.pagesScanned,
       sourceCandidateCounts: Object.fromEntries(sourceUrls.map((url) => [
         url,
         rawScrapedCandidates.filter((candidate) => candidate.discoverySourceUrl === url).length,
       ])),
       refresh,
       discoveryPoolLimit,
-      freshCandidateCount: freshEligibleCandidates.length,
+      freshCandidateCount: collectedCandidates.length,
       notSelectedAfterLimit,
       continuationRunsRemaining: Math.max(0, Number.parseInt(input.continuationRunsRemaining, 10) || 0),
       auditMode: input.audit === true || input.audit === 'true',
@@ -174,6 +237,10 @@ export default async function handler(request, response) {
     ]);
     await redis.lpush('runs:recent', runId);
     await redis.ltrim('runs:recent', 0, 19);
+    await Promise.all([
+      redis.del(collectionKey),
+      redis.del('walmart:freshCollection:active'),
+    ]);
 
     const initiallyQueuedChunks = chunks.length;
     await publishBatch(chunks.map((_, chunkIndex) => ({
@@ -188,6 +255,7 @@ export default async function handler(request, response) {
     return jsonResponse(response, 202, {
       ok: true,
       runId,
+      collectionId,
       students: students.length,
       candidates: candidates.length,
       scrapedCandidates: rawScrapedCandidates.length,
@@ -195,7 +263,7 @@ export default async function handler(request, response) {
       excludedNoDealSignal,
       excludedBuyCost,
       skippedRecentlyAnalyzed,
-      freshCandidates: freshEligibleCandidates.length,
+      freshCandidates: collectedCandidates.length,
       notSelectedAfterLimit,
       discoveryPoolLimit,
       candidateLimit,
@@ -221,6 +289,12 @@ export default async function handler(request, response) {
       auditMode: run.auditMode,
     });
   } catch (error) {
+    if (activeCollectionId) {
+      const lockOwner = await redis.get('walmart:freshCollection:active').catch(() => null);
+      if (lockOwner === activeCollectionId && !isRetryableProviderError(error)) {
+        await redis.del('walmart:freshCollection:active').catch(() => {});
+      }
+    }
     console.error(JSON.stringify({ event: 'cron_failed', message: error.message }));
     return jsonResponse(response, 500, { ok: false, error: error.message });
   }
