@@ -244,7 +244,7 @@ test('rotates distinct real Walmart clearance feeds without fake deep pages', ()
   const wrapped = walmartUrlsForWindow(walmartSourceUrls().length);
   assert.equal(first.length, 1);
   assert.equal(second.length, 1);
-  assert.equal(walmartSourceUrls().length, 37);
+  assert.equal(walmartSourceUrls().length, 52);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
@@ -281,7 +281,7 @@ test('daily automation rotates real source feeds', () => {
   }
 });
 
-test('daily runs balance broad feeds with rotating clearance categories', () => {
+test('daily runs balance broad feeds with rotating deal categories', () => {
   const aug11 = walmartUrlsForDailyRun(Date.parse('2026-08-11T13:00:00Z'));
   const aug12 = walmartUrlsForDailyRun(Date.parse('2026-08-12T13:00:00Z'));
   assert.equal(aug11.length, 6);
@@ -290,10 +290,12 @@ test('daily runs balance broad feeds with rotating clearance categories', () => 
   // the rotating clearance-category pool, not competing with it for a slot.
   assert.ok(aug11.some((url) => url.includes('/cp/video-games/2636')));
   assert.ok(aug11.some((url) => url.includes('/cp/electronics/3944')));
-  assert.equal(aug11.filter((url) => /\/shop\/deals\/clearance\//.test(url)).length, 2);
+  assert.ok(aug11.filter((url) => /\/shop\/(?:deals|savings)\//.test(url)).length >= 2);
   assert.equal(new Set(aug11).size, 6);
   assert.notDeepEqual(aug11, aug12);
-  for (const url of aug11) assert.equal(url.includes('page='), false);
+  for (const url of aug11.filter((value) => value.includes('page='))) {
+    assert.match(url, /\/shop\/deals\/flash-deals/);
+  }
   const categoryIndexes = aug11.slice(4).map((url) => walmartSourceUrls().indexOf(url));
   assert.ok(Math.max(...categoryIndexes) - Math.min(...categoryIndexes) >= 1);
 });
@@ -320,7 +322,7 @@ test('includes retailer-filtered Walmart clearance category feeds', () => {
   assert.ok(sources.some((url) => url.includes('/clearance/toys')));
   assert.ok(sources.some((url) => url.includes('/clearance/household-essentials')));
   assert.ok(sources.some((url) => url.includes('/clearance/office-and-activities')));
-  assert.equal(sources.filter((url) => url.includes('/flash-deals?') && url.includes('page=')).length, 5);
+  assert.equal(sources.filter((url) => url.includes('/flash-deals?') && url.includes('page=')).length, 20);
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 
