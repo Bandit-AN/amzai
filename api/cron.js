@@ -53,10 +53,14 @@ export default async function handler(request, response) {
         });
       }
     }
-    const requestedLimit = Number.parseInt(input.limit, 10);
-    const candidateLimit = Number.isInteger(requestedLimit)
-      ? Math.max(1, Math.min(requestedLimit, config.maxCandidates, config.walmartDetailLookupLimit))
-      : Math.min(config.maxCandidates, config.walmartDetailLookupLimit);
+    // Walmart production runs are fixed-size cohorts. A partial cohort is not
+    // launched: discovery must supply 100 fresh, cheaply eligible products
+    // before any detail/Keepa work begins.
+    const candidateLimit = Math.min(
+      config.walmartEligibleCohortSize,
+      config.maxCandidates,
+      config.walmartDetailLookupLimit,
+    );
     const requestedWindow = Number.parseInt(input.window, 10);
     const explicitWindow = Number.isInteger(requestedWindow);
     const sourceWindow = explicitWindow ? Math.max(0, requestedWindow) : dailyWalmartWindow();
@@ -88,6 +92,24 @@ export default async function handler(request, response) {
       ? allBrandEligibleCandidates
       : await filterRecentlyAnalyzedCandidates(allBrandEligibleCandidates);
     const skippedRecentlyAnalyzed = allBrandEligibleCandidates.length - freshEligibleCandidates.length;
+    if (!refresh && freshEligibleCandidates.length < candidateLimit) {
+      return jsonResponse(response, 409, {
+        ok: false,
+        skipped: true,
+        reason: 'Not enough fresh eligible products to launch a full cohort',
+        requiredFreshEligible: candidateLimit,
+        freshEligible: freshEligibleCandidates.length,
+        shortfall: candidateLimit - freshEligibleCandidates.length,
+        scrapedCandidates: rawScrapedCandidates.length,
+        initiallyEligible: allBrandEligibleCandidates.length,
+        excludedNoDealSignal,
+        excludedWalmartBrands,
+        excludedBuyCost,
+        skippedRecentlyAnalyzed,
+        sourceWindow,
+        sourceUrls,
+      });
+    }
     const candidates = freshEligibleCandidates.slice(0, candidateLimit);
     const notSelectedAfterLimit = Math.max(0, freshEligibleCandidates.length - candidates.length);
     if (candidates.length === 0) {
@@ -160,7 +182,7 @@ export default async function handler(request, response) {
       deduplicationId: `${runId}-enrich-${chunkIndex}`,
       // Avoid bursting 50 simultaneous detail-page requests into a scraper's
       // small prototype concurrency allowance.
-      delaySeconds: chunkIndex * 10,
+      delaySeconds: chunkIndex * config.walmartDetailJobSpacingSeconds,
     })));
     console.log(JSON.stringify({ event: 'run_queued', runId, students: students.length, candidates: candidates.length, chunks: chunks.length }));
     return jsonResponse(response, 202, {
