@@ -123,7 +123,15 @@ export default async function handler(request, response) {
     const claimed = await redis.set(queueClaimKey, true, { nx: true, ex: config.runTtlSeconds });
     if (claimed) {
       try {
-        const queueIndex = await redis.incr(`run:${runId}:analysisQueued`);
+        // Allocate an analysis position once per chunk and reuse it on publish
+        // retries. Incrementing on every retry previously pushed a 100-item run
+        // out to queue position 189 and left it stalled for a day.
+        const queueIndexKey = `run:${runId}:chunk:${chunkIndex}:analysisQueueIndex`;
+        let queueIndex = Number(await redis.get(queueIndexKey));
+        if (!Number.isInteger(queueIndex) || queueIndex < 1) {
+          queueIndex = await redis.incr(`run:${runId}:analysisQueued`);
+          await redis.set(queueIndexKey, queueIndex, { ex: config.runTtlSeconds });
+        }
         await publishMessage({
           url: `${config.publicBaseUrl}/api/analyze`,
           body: { runId, chunkIndex },

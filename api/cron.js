@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   analysisDelaySeconds,
   candidateFingerprint,
+  candidatePriority,
   config,
   dailyWalmartWindow,
   fetchActiveStudents,
@@ -17,6 +18,7 @@ import {
   keepaInitialDelaySeconds,
   publishBatch,
   publishMessage,
+  prioritizeCandidates,
   readJsonBody,
   redis,
   requireEnvironment,
@@ -123,7 +125,14 @@ export default async function handler(request, response) {
     for (const candidate of freshEligibleCandidates) {
       mergedByFingerprint.set(candidateFingerprint(candidate), candidate);
     }
-    const collectedCandidates = [...mergedByFingerprint.values()];
+    // A collection spans many source windows. Re-rank the entire accumulated
+    // pool globally; otherwise early pages win by insertion order even when a
+    // later page contains much deeper, cleaner markdown opportunities.
+    const collectedCandidates = prioritizeCandidates([...mergedByFingerprint.values()])
+      .map((candidate) => ({
+        ...candidate,
+        discoveryScore: candidatePriority(candidate),
+      }));
     const pagesScanned = Number(previousCollection?.pagesScanned || 0) + sourceUrls.length;
     const totalSourcePages = walmartSourceUrls().length;
     const collection = {
