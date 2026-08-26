@@ -59,7 +59,10 @@ export default async function handler(request, response) {
     }
     if (deliveryJobs.length > 0) await publishBatch(deliveryJobs);
     await redis.set(`run:${runId}:finalized`, true, { ex: config.runTtlSeconds });
-    if (Number(meta.continuationRunsRemaining) > 0) {
+    const continueUntilQualified = meta.retailer !== 'Target'
+      && meta.scanUntilQualified === true
+      && rawDeals.length === 0;
+    if (continueUntilQualified || Number(meta.continuationRunsRemaining) > 0) {
       // Advance by however many pages this run's window actually consumed
       // (meta.sourcePages), not a flat +1, so the next continuation starts
       // right after them instead of overlapping almost entirely.
@@ -69,9 +72,10 @@ export default async function handler(request, response) {
         body: {
           window: nextWindow,
           limit: config.maxCandidates,
-          continuationRunsRemaining: Number(meta.continuationRunsRemaining) - 1,
+          continuationRunsRemaining: Math.max(0, Number(meta.continuationRunsRemaining) - 1),
+          scanUntilQualified: continueUntilQualified,
         },
-        deduplicationId: `${runId}-continue-${nextWindow}`,
+        deduplicationId: `${runId}-${continueUntilQualified ? 'until-qualified' : 'continue'}-${nextWindow}`,
         delaySeconds: 120,
       }]);
     }

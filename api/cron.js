@@ -67,6 +67,8 @@ export default async function handler(request, response) {
       config.maxCandidates,
       config.walmartDetailLookupLimit,
     );
+    const scanUntilQualified = input.scanUntilQualified === true
+      || input.scanUntilQualified === 'true';
     const continuingCollection = typeof input.collectionId === 'string' && input.collectionId.length > 0;
     // Explicit operator override for an already-collected cohort. The default
     // remains a hard 100; this only lets an authenticated request launch a
@@ -100,7 +102,6 @@ export default async function handler(request, response) {
       fetchWalmartCatalog(discoveryPoolLimit, sourceUrls),
     ]);
     if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
-    if (rawScrapedCandidates.length === 0) throw new Error('Walmart scraping returned no usable candidates');
     const dealEligible = rawScrapedCandidates.filter(hasWalmartDealSignal);
     const excludedNoDealSignal = rawScrapedCandidates.length - dealEligible.length;
     const brandEligible = dealEligible.filter((candidate) => !isExcludedWalmartBrand(candidate));
@@ -108,11 +109,8 @@ export default async function handler(request, response) {
     const allBrandEligibleCandidates = brandEligible.filter((candidate) =>
       withinBuyCostLimit(candidate.currentPrice, candidate.discoverySourceUrl));
     const excludedBuyCost = brandEligible.length - allBrandEligibleCandidates.length;
-    if (allBrandEligibleCandidates.length === 0) {
-      throw new Error('No scraped candidates passed the markdown, brand, and buy-cost filters');
-    }
     const refresh = input.refresh === true || input.refresh === 'true';
-    const freshEligibleCandidates = refresh
+    const freshEligibleCandidates = refresh || allBrandEligibleCandidates.length === 0
       ? allBrandEligibleCandidates
       : await filterRecentlyAnalyzedCandidates(allBrandEligibleCandidates);
     const skippedRecentlyAnalyzed = allBrandEligibleCandidates.length - freshEligibleCandidates.length;
@@ -151,13 +149,22 @@ export default async function handler(request, response) {
       excludedBuyCost: Number(previousCollection?.excludedBuyCost || 0) + excludedBuyCost,
       skippedRecentlyAnalyzed: Number(previousCollection?.skippedRecentlyAnalyzed || 0) + skippedRecentlyAnalyzed,
       sourceUrls: [...new Set([...(previousCollection?.sourceUrls || []), ...sourceUrls])],
+      scanUntilQualified: scanUntilQualified || previousCollection?.scanUntilQualified === true,
     };
+    const launchPartialForContinuousScan = collection.scanUntilQualified
+      && collectedCandidates.length > 0
+      && pagesScanned >= totalSourcePages;
     if (!refresh && !allowPartialCollection
+      && !launchPartialForContinuousScan
       && collectedCandidates.length < candidateLimit && pagesScanned < totalSourcePages) {
       await redis.set(collectionKey, collection, { ex: config.runTtlSeconds });
       await publishMessage({
         url: `${config.publicBaseUrl}/api/cron`,
-        body: { collectionId, window: collection.nextWindow },
+        body: {
+          collectionId,
+          window: collection.nextWindow,
+          scanUntilQualified: collection.scanUntilQualified,
+        },
         deduplicationId: `${collectionId}-discover-${collection.nextWindow}`,
         delaySeconds: config.walmartDetailJobSpacingSeconds,
       });
@@ -173,10 +180,27 @@ export default async function handler(request, response) {
         nextWindow: collection.nextWindow,
       });
     }
-    if (!refresh && !allowPartialCollection && collectedCandidates.length < candidateLimit) {
+    if (!refresh && !allowPartialCollection && !launchPartialForContinuousScan
+      && collectedCandidates.length < candidateLimit) {
       collection.status = 'exhausted';
       await redis.set(collectionKey, collection, { ex: config.runTtlSeconds });
       await redis.del('walmart:freshCollection:active');
+      if (collection.scanUntilQualified && collectedCandidates.length === 0) {
+        const retryWindow = collection.nextWindow;
+        await publishMessage({
+          url: `${config.publicBaseUrl}/api/cron`,
+          body: { window: retryWindow, scanUntilQualified: true },
+          deduplicationId: `${collectionId}-wait-for-fresh-${retryWindow}`,
+          delaySeconds: 21600,
+        });
+        return jsonResponse(response, 202, {
+          ok: true,
+          waitingForFreshInventory: true,
+          collectionId,
+          retryWindow,
+          retryDelayHours: 6,
+        });
+      }
       return jsonResponse(response, 409, {
         ok: false,
         collectionId,
@@ -238,6 +262,7 @@ export default async function handler(request, response) {
       continuationRunsRemaining: Math.max(0, Number.parseInt(input.continuationRunsRemaining, 10) || 0),
       auditMode: input.audit === true || input.audit === 'true',
       partialCollectionApproved: allowPartialCollection,
+      scanUntilQualified: collection.scanUntilQualified,
       staged: false,
       funnelVersion: 2,
       totalChunks: chunks.length,
