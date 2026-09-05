@@ -23,6 +23,7 @@ import {
   redis,
   requireEnvironment,
   walmartUrlsForWindow,
+  walmartUrlsForFocus,
   walmartSourceUrls,
   withinBuyCostLimit,
   workerAuthorized,
@@ -71,6 +72,10 @@ export default async function handler(request, response) {
       || input.scanUntilQualified === 'true';
     const requestedMinRoi = Number(input.minRoi);
     const requestedMinMonthlySales = Number(input.minMonthlySales);
+    const sourceFocus = String(input.focus || '').trim().toLowerCase();
+    if (sourceFocus && sourceFocus !== 'electronics') {
+      return jsonResponse(response, 400, { error: `Unsupported Walmart scan focus: ${sourceFocus}` });
+    }
     const minRoiOverride = Number.isFinite(requestedMinRoi)
       ? Math.max(config.minimumRoi, requestedMinRoi)
       : null;
@@ -100,7 +105,9 @@ export default async function handler(request, response) {
     const requestedWindow = Number.parseInt(input.window, 10);
     const explicitWindow = Number.isInteger(requestedWindow);
     const sourceWindow = explicitWindow ? Math.max(0, requestedWindow) : dailyWalmartWindow();
-    const sourceUrls = walmartUrlsForWindow(sourceWindow, config.walmartPagesPerRun);
+    const sourceUrls = sourceFocus
+      ? walmartUrlsForFocus(sourceFocus, sourceWindow, config.walmartPagesPerRun)
+      : walmartUrlsForWindow(sourceWindow, config.walmartPagesPerRun);
     const discoveryPoolLimit = Math.min(
       config.maxCandidates,
       candidateLimit * config.walmartDiscoveryMultiplier,
@@ -149,7 +156,9 @@ export default async function handler(request, response) {
         discoveryScore: candidatePriority(candidate),
       }));
     const pagesScanned = Number(previousCollection?.pagesScanned || 0) + sourceUrls.length;
-    const totalSourcePages = walmartSourceUrls().length;
+    const totalSourcePages = sourceFocus
+      ? walmartUrlsForFocus(sourceFocus, 0, Number.MAX_SAFE_INTEGER).length
+      : walmartSourceUrls().length;
     const collection = {
       collectionId,
       createdAt: previousCollection?.createdAt || new Date().toISOString(),
@@ -169,6 +178,7 @@ export default async function handler(request, response) {
       scanUntilQualified: scanUntilQualified || previousCollection?.scanUntilQualified === true,
       runMinimumRoi,
       runMinimumMonthlySales,
+      sourceFocus: sourceFocus || previousCollection?.sourceFocus || null,
     };
     const launchPartialForContinuousScan = collection.scanUntilQualified
       && collectedCandidates.length > 0
@@ -187,6 +197,7 @@ export default async function handler(request, response) {
           ...(collection.runMinimumMonthlySales === null
             ? {}
             : { minMonthlySales: collection.runMinimumMonthlySales }),
+          ...(collection.sourceFocus ? { focus: collection.sourceFocus } : {}),
         },
         deduplicationId: `${collectionId}-discover-${collection.nextWindow}`,
         delaySeconds: config.walmartDetailJobSpacingSeconds,
@@ -219,6 +230,7 @@ export default async function handler(request, response) {
             ...(collection.runMinimumMonthlySales === null
               ? {}
               : { minMonthlySales: collection.runMinimumMonthlySales }),
+            ...(collection.sourceFocus ? { focus: collection.sourceFocus } : {}),
           },
           deduplicationId: `${collectionId}-wait-for-fresh-${retryWindow}`,
           delaySeconds: 21600,
@@ -295,6 +307,7 @@ export default async function handler(request, response) {
       scanUntilQualified: collection.scanUntilQualified,
       runMinimumRoi,
       runMinimumMonthlySales,
+      sourceFocus: collection.sourceFocus,
       staged: false,
       funnelVersion: 2,
       totalChunks: chunks.length,

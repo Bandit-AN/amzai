@@ -53,6 +53,7 @@ const {
   walmartSourceUrls,
   walmartUrlsForDailyRun,
   walmartUrlsForWindow,
+  walmartUrlsForFocus,
   withinBuyCostLimit,
 } = await import('../lib/platform.js');
 
@@ -266,6 +267,15 @@ test('a windowed continuation batch can pull multiple consecutive pages, not jus
   assert.equal(wrappedMulti[2], walmartSourceUrls()[0]);
   const capped = walmartUrlsForWindow(0, walmartSourceUrls().length + 10);
   assert.equal(capped.length, walmartSourceUrls().length);
+});
+
+test('electronics focus uses only electronics, tech, gaming, media, and phone feeds', () => {
+  const sources = walmartUrlsForFocus('electronics', 0, 100);
+  assert.equal(sources.length, 12);
+  for (const url of sources) {
+    assert.match(new URL(url).pathname, /(?:electronics|tech|video-games|cell-phones|media-and-gaming)/i);
+  }
+  assert.deepEqual(walmartUrlsForFocus('unknown', 0, 10), []);
 });
 
 test('daily automation rotates real source feeds', () => {

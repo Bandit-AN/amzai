@@ -80,6 +80,7 @@ export default async function handler(request, response) {
           ...(meta.runMinimumMonthlySales === null || meta.runMinimumMonthlySales === undefined
             ? {}
             : { minMonthlySales: meta.runMinimumMonthlySales }),
+          ...(meta.sourceFocus ? { focus: meta.sourceFocus } : {}),
         },
         deduplicationId: `${runId}-${continueUntilQualified ? 'until-qualified' : 'continue'}-${nextWindow}`,
         delaySeconds: 120,
