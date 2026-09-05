@@ -69,6 +69,14 @@ export default async function handler(request, response) {
     );
     const scanUntilQualified = input.scanUntilQualified === true
       || input.scanUntilQualified === 'true';
+    const requestedMinRoi = Number(input.minRoi);
+    const requestedMinMonthlySales = Number(input.minMonthlySales);
+    const minRoiOverride = Number.isFinite(requestedMinRoi)
+      ? Math.max(config.minimumRoi, requestedMinRoi)
+      : null;
+    const minMonthlySalesOverride = Number.isFinite(requestedMinMonthlySales)
+      ? Math.max(config.minimumMonthlySales, requestedMinMonthlySales)
+      : null;
     const continuingCollection = typeof input.collectionId === 'string' && input.collectionId.length > 0;
     // Explicit operator override for an already-collected cohort. The default
     // remains a hard 100; this only lets an authenticated request launch a
@@ -97,11 +105,11 @@ export default async function handler(request, response) {
       config.maxCandidates,
       candidateLimit * config.walmartDiscoveryMultiplier,
     );
-    const [students, rawScrapedCandidates] = await Promise.all([
+    const [fetchedStudents, rawScrapedCandidates] = await Promise.all([
       fetchActiveStudents(),
       fetchWalmartCatalog(discoveryPoolLimit, sourceUrls),
     ]);
-    if (students.length === 0) throw new Error('No active students with Discord webhooks were found');
+    if (fetchedStudents.length === 0) throw new Error('No active students with Discord webhooks were found');
     const dealEligible = rawScrapedCandidates.filter(hasWalmartDealSignal);
     const excludedNoDealSignal = rawScrapedCandidates.length - dealEligible.length;
     const brandEligible = dealEligible.filter((candidate) => !isExcludedWalmartBrand(candidate));
@@ -116,6 +124,15 @@ export default async function handler(request, response) {
     const skippedRecentlyAnalyzed = allBrandEligibleCandidates.length - freshEligibleCandidates.length;
     const collectionKey = `walmart:freshCollection:${collectionId}`;
     const previousCollection = continuingCollection ? await redis.get(collectionKey) : null;
+    const runMinimumRoi = minRoiOverride ?? previousCollection?.runMinimumRoi ?? null;
+    const runMinimumMonthlySales = minMonthlySalesOverride
+      ?? previousCollection?.runMinimumMonthlySales
+      ?? null;
+    const students = fetchedStudents.map((student) => ({
+      ...student,
+      ...(runMinimumRoi === null ? {} : { minRoi: runMinimumRoi }),
+      ...(runMinimumMonthlySales === null ? {} : { minMonthlySales: runMinimumMonthlySales }),
+    }));
     const priorCandidates = Array.isArray(previousCollection?.candidates) ? previousCollection.candidates : [];
     const mergedByFingerprint = new Map(priorCandidates.map((candidate) => [
       candidateFingerprint(candidate), candidate,
@@ -150,6 +167,8 @@ export default async function handler(request, response) {
       skippedRecentlyAnalyzed: Number(previousCollection?.skippedRecentlyAnalyzed || 0) + skippedRecentlyAnalyzed,
       sourceUrls: [...new Set([...(previousCollection?.sourceUrls || []), ...sourceUrls])],
       scanUntilQualified: scanUntilQualified || previousCollection?.scanUntilQualified === true,
+      runMinimumRoi,
+      runMinimumMonthlySales,
     };
     const launchPartialForContinuousScan = collection.scanUntilQualified
       && collectedCandidates.length > 0
@@ -164,6 +183,10 @@ export default async function handler(request, response) {
           collectionId,
           window: collection.nextWindow,
           scanUntilQualified: collection.scanUntilQualified,
+          ...(collection.runMinimumRoi === null ? {} : { minRoi: collection.runMinimumRoi }),
+          ...(collection.runMinimumMonthlySales === null
+            ? {}
+            : { minMonthlySales: collection.runMinimumMonthlySales }),
         },
         deduplicationId: `${collectionId}-discover-${collection.nextWindow}`,
         delaySeconds: config.walmartDetailJobSpacingSeconds,
@@ -189,7 +212,14 @@ export default async function handler(request, response) {
         const retryWindow = collection.nextWindow;
         await publishMessage({
           url: `${config.publicBaseUrl}/api/cron`,
-          body: { window: retryWindow, scanUntilQualified: true },
+          body: {
+            window: retryWindow,
+            scanUntilQualified: true,
+            ...(collection.runMinimumRoi === null ? {} : { minRoi: collection.runMinimumRoi }),
+            ...(collection.runMinimumMonthlySales === null
+              ? {}
+              : { minMonthlySales: collection.runMinimumMonthlySales }),
+          },
           deduplicationId: `${collectionId}-wait-for-fresh-${retryWindow}`,
           delaySeconds: 21600,
         });
@@ -263,6 +293,8 @@ export default async function handler(request, response) {
       auditMode: input.audit === true || input.audit === 'true',
       partialCollectionApproved: allowPartialCollection,
       scanUntilQualified: collection.scanUntilQualified,
+      runMinimumRoi,
+      runMinimumMonthlySales,
       staged: false,
       funnelVersion: 2,
       totalChunks: chunks.length,

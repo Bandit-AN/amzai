@@ -74,6 +74,12 @@ export default async function handler(request, response) {
           limit: config.maxCandidates,
           continuationRunsRemaining: Math.max(0, Number(meta.continuationRunsRemaining) - 1),
           scanUntilQualified: continueUntilQualified,
+          ...(meta.runMinimumRoi === null || meta.runMinimumRoi === undefined
+            ? {}
+            : { minRoi: meta.runMinimumRoi }),
+          ...(meta.runMinimumMonthlySales === null || meta.runMinimumMonthlySales === undefined
+            ? {}
+            : { minMonthlySales: meta.runMinimumMonthlySales }),
         },
         deduplicationId: `${runId}-${continueUntilQualified ? 'until-qualified' : 'continue'}-${nextWindow}`,
         delaySeconds: 120,

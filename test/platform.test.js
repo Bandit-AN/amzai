@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 process.env.GEMINI_KEY = 'test-key';
-process.env.MINIMUM_ROI = '50';
-process.env.MINIMUM_MONTHLY_SALES = '200';
+process.env.MINIMUM_ROI = '30';
+process.env.MINIMUM_MONTHLY_SALES = '50';
 process.env.WALMART_TARGET_URLS = 'https://www.walmart.com/shop/savings?facet=retailer_type%3AWalmart';
 globalThis.File ??= class File {};
 
@@ -244,7 +244,7 @@ test('rotates distinct real Walmart clearance feeds without fake deep pages', ()
   const wrapped = walmartUrlsForWindow(walmartSourceUrls().length);
   assert.equal(first.length, 1);
   assert.equal(second.length, 1);
-  assert.equal(walmartSourceUrls().length, 93);
+  assert.equal(walmartSourceUrls().length, 99);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
@@ -329,6 +329,9 @@ test('includes retailer-filtered Walmart clearance category feeds', () => {
   assert.ok(sources.some((url) => url.includes('/shop/deals/advertised-deals/fitness-and-sports')));
   assert.ok(sources.some((url) => url.includes('/shop/deals/toys/action-figures')));
   assert.ok(sources.some((url) => url.includes('/shop/deals/toys/games-and-puzzles')));
+  assert.ok(sources.some((url) => url.includes('/shop/deals/trending')));
+  assert.ok(sources.some((url) => url.includes('/shop/halloween-new-and-trending')));
+  assert.ok(sources.some((url) => url.includes('/shop/deals/toys/trendingtoys')));
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 
@@ -909,11 +912,11 @@ test('allocation respects per-student maximum cost and excluded brands', () => {
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['B000000003']);
 });
 
-test('allocation enforces the global 60 percent ROI floor', () => {
-  const students = [{ id: 'a', minRoi: 50, minMonthlySales: 200, maxCost: 100, excludedBrands: [] }];
+test('allocation enforces the global 30 percent ROI floor', () => {
+  const students = [{ id: 'a', minRoi: 30, minMonthlySales: 50, maxCost: 100, excludedBrands: [] }];
   const assignments = allocateDeals([
-    automaticDeal({ asin: 'LOW', brand: 'Acme', currentPrice: 10, roi: 59.9, estimatedMonthlySales: 500 }),
-    automaticDeal({ asin: 'PASS', brand: 'Acme', currentPrice: 10, roi: 60, estimatedMonthlySales: 500 }),
+    automaticDeal({ asin: 'LOW', brand: 'Acme', currentPrice: 10, roi: 29.9, estimatedMonthlySales: 500 }),
+    automaticDeal({ asin: 'PASS', brand: 'Acme', currentPrice: 10, roi: 30, estimatedMonthlySales: 500 }),
   ], students, 10, 'run-roi');
   assert.deepEqual(assignments.a.map((deal) => deal.asin), ['PASS']);
 });
