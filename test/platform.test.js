@@ -245,7 +245,7 @@ test('rotates distinct real Walmart clearance feeds without fake deep pages', ()
   const wrapped = walmartUrlsForWindow(walmartSourceUrls().length);
   assert.equal(first.length, 1);
   assert.equal(second.length, 1);
-  assert.equal(walmartSourceUrls().length, 105);
+  assert.equal(walmartSourceUrls().length, 107);
   assert.equal(first[0].includes('page='), false);
   assert.match(first[0], /\/shop\/savings/);
   assert.match(second[0], /\/shop\/deals\/clearance/);
@@ -271,7 +271,7 @@ test('a windowed continuation batch can pull multiple consecutive pages, not jus
 
 test('electronics focus uses only electronics, tech, gaming, media, and phone feeds', () => {
   const sources = walmartUrlsForFocus('electronics', 0, 100);
-  assert.equal(sources.length, 12);
+  assert.equal(sources.length, 13);
   for (const url of sources) {
     assert.match(new URL(url).pathname, /(?:electronics|tech|video-games|cell-phones|media-and-gaming)/i);
   }
@@ -345,6 +345,8 @@ test('includes retailer-filtered Walmart clearance category feeds', () => {
   assert.ok(sources.some((url) => url.includes('/shop/savings/gifting')));
   assert.ok(sources.some((url) => url.includes('/shop/deals/black-friday/new-deals')));
   assert.ok(sources.some((url) => url.includes('/shop/deals/black-friday/seasonal')));
+  assert.ok(sources.some((url) => url.includes('/shop/savings/rollbacks')));
+  assert.ok(sources.some((url) => url.includes('/shop/deals/tech-clearance')));
   for (const url of sources) assert.match(url, /retailer_type%3AWalmart/);
 });
 

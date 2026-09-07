@@ -178,7 +178,6 @@ export default async function handler(request, response) {
               chunkIndex, title: candidate.title, reason, walmartIdentity: fallback,
             }),
             redis.incr(`run:${runId}:funnel:manualReview`),
-            markCandidatesAnalyzed([candidate]),
           ]);
         }
         await redis.set(

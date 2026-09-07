@@ -180,11 +180,7 @@ export default async function handler(request, response) {
       runMinimumMonthlySales,
       sourceFocus: sourceFocus || previousCollection?.sourceFocus || null,
     };
-    const launchPartialForContinuousScan = collection.scanUntilQualified
-      && collectedCandidates.length > 0
-      && pagesScanned >= totalSourcePages;
     if (!refresh && !allowPartialCollection
-      && !launchPartialForContinuousScan
       && collectedCandidates.length < candidateLimit && pagesScanned < totalSourcePages) {
       await redis.set(collectionKey, collection, { ex: config.runTtlSeconds });
       await publishMessage({
@@ -214,16 +210,15 @@ export default async function handler(request, response) {
         nextWindow: collection.nextWindow,
       });
     }
-    if (!refresh && !allowPartialCollection && !launchPartialForContinuousScan
-      && collectedCandidates.length < candidateLimit) {
-      collection.status = 'exhausted';
+    if (!refresh && !allowPartialCollection && collectedCandidates.length < candidateLimit) {
+      collection.status = collection.scanUntilQualified ? 'waiting_for_fresh' : 'exhausted';
       await redis.set(collectionKey, collection, { ex: config.runTtlSeconds });
-      await redis.del('walmart:freshCollection:active');
-      if (collection.scanUntilQualified && collectedCandidates.length === 0) {
+      if (collection.scanUntilQualified) {
         const retryWindow = collection.nextWindow;
         await publishMessage({
           url: `${config.publicBaseUrl}/api/cron`,
           body: {
+            collectionId,
             window: retryWindow,
             scanUntilQualified: true,
             ...(collection.runMinimumRoi === null ? {} : { minRoi: collection.runMinimumRoi }),
@@ -232,17 +227,21 @@ export default async function handler(request, response) {
               : { minMonthlySales: collection.runMinimumMonthlySales }),
             ...(collection.sourceFocus ? { focus: collection.sourceFocus } : {}),
           },
-          deduplicationId: `${collectionId}-wait-for-fresh-${retryWindow}`,
+          deduplicationId: `${collectionId}-wait-for-fresh-${retryWindow}-${pagesScanned}`,
           delaySeconds: 21600,
         });
         return jsonResponse(response, 202, {
           ok: true,
           waitingForFreshInventory: true,
           collectionId,
+          collectedFreshEligible: collectedCandidates.length,
+          requiredFreshEligible: candidateLimit,
+          remaining: candidateLimit - collectedCandidates.length,
           retryWindow,
           retryDelayHours: 6,
         });
       }
+      await redis.del('walmart:freshCollection:active');
       return jsonResponse(response, 409, {
         ok: false,
         collectionId,
