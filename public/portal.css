@@ -187,3 +187,14 @@
     margin-top: 24px;
   }
 }
+
+/* Light-theme corrections for portal-only controls. */
+.login-tabs { background: #f5f3ef; }
+.login-tab.active { background: #fff; color: var(--text); box-shadow: 0 4px 15px rgba(45, 37, 24, 0.08); }
+.field-grid label, .preferences-panel label, .storefront-form label { color: #55514b; }
+.field-grid input, .preferences-panel input, .preferences-panel textarea, .storefront-form input { background: #fff; border-color: #d9d4cc; color: #171717; }
+.video-placeholder { background: #faf9f7; }
+.managed-keys { background: #f1faf5; }
+.managed-keys strong { color: #47584e; }
+.managed-keys span { color: #176843; }
+.storefront-row { background: #faf9f7; }

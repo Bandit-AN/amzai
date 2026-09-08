@@ -217,7 +217,7 @@ async function loadStudentPortal() {
   $('#excludedBrandsInput').value = (student.excludedBrands || []).join('\n');
   $('#webhookStatus').textContent = student.webhookConfigured
     ? '✓ Your private Discord destination is configured.'
-    : 'Your Discord destination is not configured yet. Contact the Syndicate team.';
+    : 'Your Discord destination is not configured yet. Contact the Seller Syndicate team.';
   $('#webhookStatus').classList.toggle('ready', student.webhookConfigured);
   if (data.onboardingVideoUrl) {
     $('#onboardingVideo').src = data.onboardingVideoUrl;

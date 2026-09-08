@@ -586,3 +586,51 @@ button:disabled {
     display: none;
   }
 }
+
+/* Buy Box Bandit light identity */
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f7f7f5;
+  --line: #e5e1da;
+  --text: #151515;
+  --muted: #6d6a65;
+  --orange: #d79a00;
+  --green: #18875b;
+  --red: #c63c3c;
+  --blue: #346da6;
+}
+body { background: #fff; color: var(--text); }
+.glow { opacity: 0.035; }
+.topbar { background: rgba(255, 255, 255, 0.94); }
+.brand > span { display: grid; gap: 1px; }
+.brand > span b { font-size: 17px; }
+.brand > span small { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.brand-logo { object-fit: contain; background: #fff; box-shadow: none; }
+.live-pill { color: #4c4a46; background: #faf9f7; }
+.ghost-button, .secondary-button { background: #faf9f7; color: #33312e; }
+.primary-button { background: linear-gradient(135deg, #f2bc2c, #dfa100); color: #17130a; box-shadow: 0 10px 25px rgba(185, 128, 0, 0.15); }
+.login-card { max-width: 760px; margin-top: 6vh; background: #fff; box-shadow: 0 28px 80px rgba(39, 31, 16, 0.1); text-align: center; }
+.login-card form, .login-card .login-tabs { text-align: left; }
+.login-logo { width: 180px; height: 180px; object-fit: contain; margin: -20px auto 18px; display: block; }
+.login-card h1 span { color: #706b63; font-size: 0.62em; }
+.login-card > p { margin-left: auto; margin-right: auto; }
+.login-tabs { background: #f5f3ef; }
+.login-tab.active { background: #fff; color: var(--text); box-shadow: 0 4px 15px rgba(45, 37, 24, 0.08); }
+.secret-row input, .field-grid input, .preferences-panel input, .preferences-panel textarea { background: #fff; border-color: #d9d4cc; color: #171717; }
+.metric-card, .panel { background: #fff; box-shadow: 0 10px 35px rgba(39, 31, 16, 0.045); }
+.accent-card { background: linear-gradient(145deg, #fff8e5, #fff); border-color: #ead699; }
+.run-card { background: #faf9f7; }
+.run-id { color: #373430; }
+.progress-track { background: #e9e5de; }
+.run-stats b, .run-outcome, .funnel-grid b { color: #292724; }
+.funnel-grid span, .identity-row { background: #fff; border-color: #e8e3db; }
+.run-details summary { color: #55514b; }
+.identity-row span, .identity-row a, .review-row a, .review-row > span { color: #292724; }
+.status { color: #346da6; }
+.status.finalized { color: #18875b; }
+.status.awaiting_audit { color: #a86d00; }
+.avatar { background: #fff3d3; color: #946200; }
+.flow > i { color: #aaa39a; }
+.notice { background: #eef9f3; color: #176843; }
