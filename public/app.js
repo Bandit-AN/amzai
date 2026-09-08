@@ -12,12 +12,23 @@ const lockButton = $('#lockButton');
 const notice = $('#notice');
 let secret = sessionStorage.getItem('amzai_admin_secret') || '';
 let refreshTimer;
+let supabaseClient = null;
+let supabaseAccessToken = '';
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
 })[character]);
 
 const api = async (path) => {
   const response = await fetch(path, { headers: { Authorization: `Bearer ${secret}` } });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+  return body;
+};
+
+const studentApi = async (path, options = {}) => {
+  const headers = { ...(options.headers || {}) };
+  if (supabaseAccessToken) headers.Authorization = `Bearer ${supabaseAccessToken}`;
+  const response = await fetch(path, { ...options, headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
   return body;
@@ -174,10 +185,26 @@ const selectLoginTab = (studentMode) => {
   adminLoginForm.classList.toggle('hidden', studentMode);
 };
 
+function renderStorefronts(storefronts) {
+  const list = $('#storefrontList');
+  if (!supabaseAccessToken) {
+    list.innerHTML = '<div class="empty-state">Sign in with Google to manage storefronts.</div>';
+    return;
+  }
+  list.innerHTML = storefronts.length ? storefronts.map((item) => `<div class="storefront-row">
+    <div><strong>${escapeHtml(item.label || item.seller_id)}</strong><small>${escapeHtml(item.seller_id)} · tracking new listings</small></div>
+    <button class="remove-storefront" type="button" data-storefront-id="${escapeHtml(item.id)}">Remove</button>
+  </div>`).join('') : '<div class="empty-state">No competitors tracked yet.</div>';
+}
+
+async function loadStorefronts() {
+  if (!supabaseAccessToken) return renderStorefronts([]);
+  const data = await studentApi('/api/storefronts');
+  renderStorefronts(data.storefronts || []);
+}
+
 async function loadStudentPortal() {
-  const response = await fetch('/api/student');
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Please sign in');
+  const data = await studentApi('/api/student');
   const student = data.student;
   loginView.classList.add('hidden');
   dashboardView.classList.add('hidden');
@@ -197,10 +224,22 @@ async function loadStudentPortal() {
     $('#onboardingVideo').classList.remove('hidden');
     $('#videoPlaceholder').classList.add('hidden');
   }
+  await loadStorefronts();
 }
 
 $('#studentTab').addEventListener('click', () => selectLoginTab(true));
 $('#adminTab').addEventListener('click', () => selectLoginTab(false));
+
+$('#googleLoginButton').addEventListener('click', async () => {
+  const errorElement = $('#studentLoginError');
+  errorElement.textContent = '';
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: `${window.location.origin}/` },
+  });
+  if (error) errorElement.textContent = error.message;
+});
 
 studentLoginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -222,7 +261,7 @@ $('#preferencesForm').addEventListener('submit', async (event) => {
   const message = $('#preferencesMessage');
   message.textContent = 'Saving…';
   try {
-    const response = await fetch('/api/student', {
+    const data = await studentApi('/api/student', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         minRoi: Number($('#minRoiInput').value),
@@ -231,13 +270,45 @@ $('#preferencesForm').addEventListener('submit', async (event) => {
         excludedBrands: $('#excludedBrandsInput').value,
       }),
     });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || 'Could not save preferences');
     message.textContent = 'Preferences saved.';
   } catch (error) { message.textContent = error.message; }
 });
 
+$('#storefrontForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const message = $('#storefrontMessage');
+  message.textContent = 'Adding…';
+  try {
+    if (!supabaseAccessToken) throw new Error('Sign in with Google to manage storefronts');
+    await studentApi('/api/storefronts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sellerId: $('#storefrontSellerInput').value,
+        label: $('#storefrontLabelInput').value,
+      }),
+    });
+    event.currentTarget.reset();
+    message.textContent = 'Storefront added. The first daily check creates its baseline.';
+    await loadStorefronts();
+  } catch (error) { message.textContent = error.message; }
+});
+
+$('#storefrontList').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-storefront-id]');
+  if (!button) return;
+  button.disabled = true;
+  try {
+    await studentApi('/api/storefronts', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: button.dataset.storefrontId }),
+    });
+    await loadStorefronts();
+  } catch (error) { $('#storefrontMessage').textContent = error.message; button.disabled = false; }
+});
+
 $('#studentLogoutButton').addEventListener('click', async () => {
+  if (supabaseClient) await supabaseClient.auth.signOut().catch(() => {});
+  supabaseAccessToken = '';
   await fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
   studentView.classList.add('hidden'); loginView.classList.remove('hidden'); selectLoginTab(true);
 });
@@ -262,5 +333,22 @@ runButton.addEventListener('click', async () => {
   finally { runButton.disabled = false; }
 });
 
-if (secret) loadDashboard().then(() => { refreshTimer = setInterval(loadDashboard, 30000); }).catch(lock);
-else loadStudentPortal().catch(() => { lock(); selectLoginTab(true); });
+async function initializePortal() {
+  try {
+    const response = await fetch('/api/config');
+    const publicConfig = await response.json();
+    if (publicConfig.supabase && globalThis.supabase?.createClient) {
+      supabaseClient = globalThis.supabase.createClient(publicConfig.supabase.url, publicConfig.supabase.anonKey);
+      $('#googleLoginButton').disabled = false;
+      const { data } = await supabaseClient.auth.getSession();
+      supabaseAccessToken = data.session?.access_token || '';
+      supabaseClient.auth.onAuthStateChange((_event, session) => {
+        supabaseAccessToken = session?.access_token || '';
+      });
+    }
+  } catch {}
+  if (secret) return loadDashboard().then(() => { refreshTimer = setInterval(loadDashboard, 30000); }).catch(lock);
+  return loadStudentPortal().catch(() => { lock(); selectLoginTab(true); });
+}
+
+initializePortal();

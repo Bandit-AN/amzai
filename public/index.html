@@ -32,6 +32,10 @@
         <button class="login-tab" id="adminTab" type="button">Admin</button>
       </div>
       <form id="studentLoginForm">
+        <button class="google-button" id="googleLoginButton" type="button" disabled>
+          <span class="google-mark">G</span> Continue with Google
+        </button>
+        <div class="login-divider"><span>or use your existing login</span></div>
         <div class="field-grid two-fields">
           <label>Student username<input id="usernameInput" autocomplete="username" required></label>
           <label>Password<input id="passwordInput" type="password" autocomplete="current-password" required></label>
@@ -75,6 +79,20 @@
             <p class="form-error" id="preferencesMessage" role="status"></p>
           </form>
         </article>
+      </section>
+      <section class="panel storefront-panel">
+        <div class="panel-heading">
+          <div><span class="eyebrow">Competitor intelligence</span><h2>Tracked Amazon storefronts</h2></div>
+          <span class="auto-refresh">Private alerts → your Discord</span>
+        </div>
+        <p class="storefront-intro">Add a competitor’s Amazon seller ID or paste their storefront URL. The first check establishes a baseline; later checks send only genuinely new listings to your private Discord channel.</p>
+        <form id="storefrontForm" class="storefront-form">
+          <label>Seller ID or storefront URL<input id="storefrontSellerInput" placeholder="A1ABCDEF234567 or Amazon storefront URL" required></label>
+          <label>Label <input id="storefrontLabelInput" placeholder="Optional competitor name" maxlength="80"></label>
+          <button class="primary-button" type="submit">Track storefront</button>
+        </form>
+        <p class="form-error" id="storefrontMessage" role="status"></p>
+        <div class="storefront-list" id="storefrontList"><div class="empty-state">Sign in with Google to manage storefronts.</div></div>
       </section>
     </section>
 
@@ -143,6 +161,7 @@
       </section>
     </section>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -4,12 +4,15 @@ import {
   bestWalmartMatchForAmazonProduct,
   config,
   enrichWalmartCandidate,
+  fetchActiveStudents,
   fetchSellerStorefrontAsins,
   fetchWalmartCatalog,
   hydrateKeepaProductsByAsin,
   isBlockedStorefrontBrand,
   isRetryableProviderError,
   jsonResponse,
+  readJsonBody,
+  readPortalIdentity,
   redis,
   requireEnvironment,
   storefrontDiscordPayloads,
@@ -31,6 +34,102 @@ async function postDiscord(webhook, payload) {
     }
   }
   throw new Error('Discord delivery retries exhausted');
+}
+
+const storefrontTableUrl = () => `${config.supabaseUrl}/rest/v1/student_storefronts`;
+const bearerToken = (request) => String(request.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+const supabaseHeaders = (token) => ({
+  apikey: config.supabaseAnonKey,
+  Authorization: `Bearer ${token}`,
+  'Content-Type': 'application/json',
+});
+
+function normalizedSellerId(value) {
+  const raw = String(value || '').trim();
+  let candidate = raw;
+  try {
+    const url = new URL(raw);
+    candidate = url.searchParams.get('seller') || url.searchParams.get('me') || url.pathname.split('/').filter(Boolean).at(-1) || '';
+  } catch {}
+  candidate = candidate.trim().toUpperCase();
+  if (!/^[A-Z0-9]{6,32}$/.test(candidate)) {
+    throw new Error('Enter a valid Amazon seller ID or storefront URL containing seller=');
+  }
+  return candidate;
+}
+
+async function handleStudentStorefronts(request, response, identity) {
+  if (identity.type !== 'supabase') {
+    return jsonResponse(response, 403, { error: 'Sign in with Google to manage storefronts' });
+  }
+  const token = bearerToken(request);
+  const headers = supabaseHeaders(token);
+  if (request.method === 'GET') {
+    const result = await axios.get(storefrontTableUrl(), {
+      headers,
+      params: { select: 'id,seller_id,label,created_at', order: 'created_at.desc' },
+      timeout: config.requestTimeoutMs,
+    });
+    return jsonResponse(response, 200, { ok: true, storefronts: result.data || [] });
+  }
+  if (request.method === 'POST') {
+    const body = await readJsonBody(request);
+    const sellerId = normalizedSellerId(body.sellerId || body.url);
+    const label = String(body.label || '').trim().slice(0, 80);
+    const result = await axios.post(storefrontTableUrl(), [{
+      user_id: identity.userId,
+      owner_email: identity.email,
+      seller_id: sellerId,
+      label,
+    }], {
+      headers: { ...headers, Prefer: 'return=representation' },
+      timeout: config.requestTimeoutMs,
+    });
+    return jsonResponse(response, 201, { ok: true, storefront: result.data?.[0] });
+  }
+  if (request.method === 'DELETE') {
+    const body = await readJsonBody(request);
+    const id = String(body.id || request.query?.id || '').trim();
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid storefront entry');
+    await axios.delete(storefrontTableUrl(), {
+      headers,
+      params: { id: `eq.${id}` },
+      timeout: config.requestTimeoutMs,
+    });
+    return jsonResponse(response, 200, { ok: true });
+  }
+  return jsonResponse(response, 405, { error: 'Method not allowed' });
+}
+
+async function configuredStorefronts() {
+  const tracked = [];
+  if (config.supabaseUrl && config.supabaseServiceRoleKey) {
+    const response = await axios.get(storefrontTableUrl(), {
+      headers: {
+        apikey: config.supabaseServiceRoleKey,
+        Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
+      },
+      params: { select: 'id,user_id,owner_email,seller_id,label' },
+      timeout: config.requestTimeoutMs,
+    });
+    const students = await fetchActiveStudents({ fresh: true });
+    const byEmail = new Map(students.map((student) => [student.email, student]));
+    for (const row of response.data || []) {
+      const student = byEmail.get(String(row.owner_email || '').trim().toLowerCase());
+      if (!student) continue;
+      tracked.push({
+        ownerKey: row.user_id,
+        ownerEmail: row.owner_email,
+        sellerId: row.seller_id,
+        label: row.label || row.seller_id,
+        webhook: student.discordWebhookUrl,
+      });
+    }
+  }
+  for (const entry of config.amazonTrackedSellers) {
+    tracked.push({ ...entry, ownerKey: 'legacy', webhook: config.storefrontDiscordWebhookUrl });
+  }
+  return tracked;
 }
 
 function amazonImageUrl(product) {
@@ -66,29 +165,44 @@ async function findWalmartMatch(product) {
 }
 
 export default async function handler(request, response) {
-  if (!['GET', 'POST'].includes(request.method)) return jsonResponse(response, 405, { error: 'Method not allowed' });
+  if (!['GET', 'POST', 'DELETE'].includes(request.method)) return jsonResponse(response, 405, { error: 'Method not allowed' });
+  const portalIdentity = await readPortalIdentity(request);
+  if (portalIdentity) {
+    try { return await handleStudentStorefronts(request, response, portalIdentity); }
+    catch (error) {
+      const message = error.response?.data?.message || error.response?.data?.details || error.message;
+      const status = error.response?.status === 409 ? 409 : 400;
+      return jsonResponse(response, status, { ok: false, error: message });
+    }
+  }
   const internalRequest = request.method === 'POST' && workerAuthorized(request);
   if (!internalRequest && config.cronSecret && request.headers.authorization !== `Bearer ${config.cronSecret}`) {
     return jsonResponse(response, 401, { error: 'Unauthorized' });
   }
   try {
     requireEnvironment(['KEEPA_API_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']);
-    if (config.amazonTrackedSellers.length === 0) {
-      return jsonResponse(response, 200, { ok: true, skipped: true, reason: 'No AMAZON_TRACKED_SELLERS configured' });
+    const trackedStorefronts = await configuredStorefronts();
+    if (trackedStorefronts.length === 0) {
+      return jsonResponse(response, 200, { ok: true, skipped: true, reason: 'No student storefronts configured' });
     }
-    if (!config.storefrontDiscordWebhookUrl) throw new Error('STOREFRONT_DISCORD_WEBHOOK_URL is required');
     if (!config.scraperApiKey && !config.walmartScraperApiKey && !config.scrapingAntApiKey) {
       throw new Error('A Walmart scraper provider is required to search for matches');
     }
 
     const sellers = [];
-    for (const { sellerId, label } of config.amazonTrackedSellers) {
-      const seller = await fetchSellerStorefrontAsins(sellerId);
+    const sellerCache = new Map();
+    for (const { sellerId, label, ownerKey, ownerEmail, webhook } of trackedStorefronts) {
+      if (!webhook) {
+        sellers.push({ sellerId, label, ownerEmail, error: 'Student Discord webhook is not configured' });
+        continue;
+      }
+      if (!sellerCache.has(sellerId)) sellerCache.set(sellerId, await fetchSellerStorefrontAsins(sellerId));
+      const seller = sellerCache.get(sellerId);
       if (!seller) {
         sellers.push({ sellerId, label, error: 'Seller not found or has no storefront data' });
         continue;
       }
-      const seenKey = `storefront:seen:${sellerId}`;
+      const seenKey = `storefront:seen:${ownerKey}:${sellerId}`;
       const previouslySeen = new Set(await redis.get(seenKey) || []);
       const isFirstRun = previouslySeen.size === 0;
       const newAsins = seller.asinList.filter((asin) => !previouslySeen.has(asin));
@@ -135,7 +249,7 @@ export default async function handler(request, response) {
       }
 
       const payloads = storefrontDiscordPayloads(seller.sellerName || label, newListings);
-      for (const payload of payloads) await postDiscord(config.storefrontDiscordWebhookUrl, payload);
+      for (const payload of payloads) await postDiscord(webhook, payload);
 
       sellers.push({
         sellerId,
