@@ -75,6 +75,27 @@ const supabaseAdminHeaders = () => ({
   'Content-Type': 'application/json',
 });
 const storefrontUrl = () => `${platformConfig.supabaseUrl}/rest/v1/student_storefronts`;
+const discordCommands = [
+  { name: 'setup', description: 'Create or connect your Buy Box Bandit student account' },
+  { name: 'add', description: 'Track an Amazon competitor storefront', options: [
+    { type: 3, name: 'storefront', description: 'Amazon seller ID or storefront URL', required: true },
+    { type: 3, name: 'name', description: 'Optional competitor name', required: false, max_length: 80 },
+  ] },
+  { name: 'remove', description: 'Stop tracking an Amazon competitor storefront', options: [
+    { type: 3, name: 'storefront', description: 'Amazon seller ID', required: true },
+  ] },
+  { name: 'viewlist', description: 'View your tracked Amazon storefronts' },
+  { name: 'help', description: 'View Buy Box Bandit commands' },
+];
+
+async function registerCommands(response) {
+  const result = await axios.put(
+    `https://discord.com/api/v10/applications/${platformConfig.discordApplicationId}/guilds/${platformConfig.discordGuildId}/commands`,
+    discordCommands,
+    { headers: apiHeaders(), timeout: platformConfig.requestTimeoutMs },
+  );
+  return jsonResponse(response, 200, { ok: true, commands: result.data.map((command) => command.name) });
+}
 
 async function listStorefronts(student) {
   const response = await axios.get(storefrontUrl(), {
@@ -155,6 +176,15 @@ async function handleCommand(interaction) {
 
 export default async function handler(request, response) {
   if (request.method !== 'POST') return jsonResponse(response, 405, { error: 'Method not allowed' });
+  if (request.query?.register === 'true'
+    && platformConfig.cronSecret
+    && request.headers.authorization === `Bearer ${platformConfig.cronSecret}`) {
+    try { return await registerCommands(response); }
+    catch (error) {
+      const detail = error.response?.data?.message || error.message;
+      return jsonResponse(response, 400, { ok: false, error: detail });
+    }
+  }
   const body = await rawBody(request);
   if (!validSignature(request, body)) return jsonResponse(response, 401, { error: 'Invalid Discord signature' });
   try {
