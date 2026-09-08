@@ -1,0 +1,173 @@
+import axios from 'axios';
+import nacl from 'tweetnacl';
+
+import { config as platformConfig, fetchDiscordStudent, jsonResponse, upsertDiscordStudent } from '../lib/platform.js';
+
+export const config = { api: { bodyParser: false } };
+
+const EPHEMERAL = 64;
+const discordResponse = (response, body) => jsonResponse(response, 200, body);
+const message = (content) => ({ type: 4, data: { content, flags: EPHEMERAL } });
+const apiHeaders = () => ({ Authorization: `Bot ${platformConfig.discordBotToken}`, 'Content-Type': 'application/json' });
+
+async function rawBody(request) {
+  if (Buffer.isBuffer(request.body)) return request.body;
+  if (typeof request.body === 'string') return Buffer.from(request.body);
+  const chunks = [];
+  for await (const chunk of request) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+function validSignature(request, body) {
+  const signature = String(request.headers['x-signature-ed25519'] || '');
+  const timestamp = String(request.headers['x-signature-timestamp'] || '');
+  if (!signature || !timestamp || !platformConfig.discordPublicKey) return false;
+  try {
+    return nacl.sign.detached.verify(
+      Buffer.from(timestamp + body.toString('utf8')),
+      Buffer.from(signature, 'hex'),
+      Buffer.from(platformConfig.discordPublicKey, 'hex'),
+    );
+  } catch { return false; }
+}
+
+function option(interaction, name) {
+  return interaction.data?.options?.find((item) => item.name === name)?.value;
+}
+
+function modalValue(interaction, id) {
+  for (const row of interaction.data?.components || []) {
+    const input = row.components?.find((item) => item.custom_id === id);
+    if (input) return String(input.value || '').trim();
+  }
+  return '';
+}
+
+function authorizedStudentRole(interaction) {
+  return interaction.guild_id === platformConfig.discordGuildId
+    && interaction.member?.roles?.includes(platformConfig.discordStudentRoleId);
+}
+
+export function sellerIdFrom(value) {
+  const raw = String(value || '').trim();
+  let sellerId = raw;
+  try {
+    const url = new URL(raw);
+    sellerId = url.searchParams.get('seller') || url.searchParams.get('me') || '';
+  } catch {}
+  sellerId = sellerId.trim().toUpperCase();
+  if (!/^[A-Z0-9]{6,32}$/.test(sellerId)) throw new Error('Enter a valid Amazon seller ID or a storefront URL containing `seller=`.');
+  return sellerId;
+}
+
+async function enrolledStudent(interaction) {
+  const student = await fetchDiscordStudent({ userId: interaction.member?.user?.id || interaction.user?.id });
+  if (!student || student.fields.Status !== 'Active') throw new Error('Run `/setup` before using storefront commands.');
+  if (String(student.fields['Discord Channel ID']) !== String(interaction.channel_id)) {
+    throw new Error('Use this command inside your assigned private Buy Box Bandit channel.');
+  }
+  return student;
+}
+
+const supabaseAdminHeaders = () => ({
+  apikey: platformConfig.supabaseServiceRoleKey,
+  Authorization: `Bearer ${platformConfig.supabaseServiceRoleKey}`,
+  'Content-Type': 'application/json',
+});
+const storefrontUrl = () => `${platformConfig.supabaseUrl}/rest/v1/student_storefronts`;
+
+async function listStorefronts(student) {
+  const response = await axios.get(storefrontUrl(), {
+    headers: supabaseAdminHeaders(),
+    params: { select: 'id,seller_id,label,created_at', airtable_student_id: `eq.${student.id}`, order: 'created_at.asc' },
+    timeout: platformConfig.requestTimeoutMs,
+  });
+  return response.data || [];
+}
+
+async function createChannelWebhook(channelId) {
+  const response = await axios.post(`https://discord.com/api/v10/channels/${channelId}/webhooks`, {
+    name: 'The Buy Box Bandit',
+  }, { headers: apiHeaders(), timeout: platformConfig.requestTimeoutMs });
+  return `https://discord.com/api/webhooks/${response.data.id}/${response.data.token}`;
+}
+
+async function completeSetup(interaction) {
+  if (!authorizedStudentRole(interaction)) throw new Error('You need the Buy Box Bandit Student role to enroll.');
+  const name = modalValue(interaction, 'student_name').replace(/\s+/g, ' ').slice(0, 100);
+  const email = modalValue(interaction, 'student_email').toLowerCase();
+  if (name.length < 2) throw new Error('Enter your full name.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address.');
+  const userId = interaction.member.user.id;
+  const existing = await fetchDiscordStudent({ userId });
+  let webhookUrl = existing?.fields?.['Discord Webhook URL'] || '';
+  if (!webhookUrl) webhookUrl = await createChannelWebhook(interaction.channel_id);
+  const student = await upsertDiscordStudent({
+    name, email, userId, channelId: interaction.channel_id, guildId: interaction.guild_id, webhookUrl, existingByUser: existing,
+  });
+  return message(`✅ **The Buy Box Bandit is ready**\n\nStudent: **${student.name}**\nLogin email: **${email}**\nDashboard: https://app.sellersyndicate.org\nPrivate alerts: <#${interaction.channel_id}>\nTracked storefronts: **0**`);
+}
+
+async function handleCommand(interaction) {
+  const command = interaction.data?.name;
+  if (command === 'setup') {
+    if (!authorizedStudentRole(interaction)) return message('You need the Buy Box Bandit Student role to enroll.');
+    return {
+      type: 9,
+      data: {
+        custom_id: 'student_setup', title: 'Set up The Buy Box Bandit',
+        components: [
+          { type: 1, components: [{ type: 4, custom_id: 'student_name', label: 'Full name', style: 1, min_length: 2, max_length: 100, required: true }] },
+          { type: 1, components: [{ type: 4, custom_id: 'student_email', label: 'Google login email', style: 1, min_length: 5, max_length: 254, required: true, placeholder: 'you@example.com' }] },
+        ],
+      },
+    };
+  }
+  const student = await enrolledStudent(interaction);
+  if (command === 'add') {
+    const sellerId = sellerIdFrom(option(interaction, 'storefront'));
+    const label = String(option(interaction, 'name') || '').trim().slice(0, 80);
+    await axios.post(storefrontUrl(), [{
+      airtable_student_id: student.id,
+      owner_email: student.email,
+      seller_id: sellerId,
+      label,
+    }], { headers: { ...supabaseAdminHeaders(), Prefer: 'resolution=ignore-duplicates,return=representation' }, timeout: platformConfig.requestTimeoutMs });
+    return message(`✅ Now tracking **${label || sellerId}** (${sellerId}). The first tracker check creates a baseline; later new listings will alert this channel.`);
+  }
+  if (command === 'remove') {
+    const sellerId = sellerIdFrom(option(interaction, 'storefront'));
+    await axios.delete(storefrontUrl(), {
+      headers: supabaseAdminHeaders(),
+      params: { airtable_student_id: `eq.${student.id}`, seller_id: `eq.${sellerId}` },
+      timeout: platformConfig.requestTimeoutMs,
+    });
+    return message(`✅ Removed **${sellerId}** from your tracked storefronts.`);
+  }
+  if (command === 'viewlist') {
+    const stores = await listStorefronts(student);
+    if (!stores.length) return message('You are not tracking any storefronts yet. Use `/add`.');
+    const rows = stores.slice(0, 50).map((store, index) => `${index + 1}. **${store.label || store.seller_id}**\n   ${store.seller_id}`);
+    return message(`**Your tracked storefronts (${stores.length})**\n\n${rows.join('\n')}`);
+  }
+  return message('**Buy Box Bandit commands**\n`/setup` create or connect your account\n`/add` track a storefront\n`/remove` stop tracking a storefront\n`/viewlist` see your tracked storefronts');
+}
+
+export default async function handler(request, response) {
+  if (request.method !== 'POST') return jsonResponse(response, 405, { error: 'Method not allowed' });
+  const body = await rawBody(request);
+  if (!validSignature(request, body)) return jsonResponse(response, 401, { error: 'Invalid Discord signature' });
+  try {
+    const interaction = JSON.parse(body.toString('utf8'));
+    if (interaction.type === 1) return discordResponse(response, { type: 1 });
+    if (interaction.type === 5 && interaction.data?.custom_id === 'student_setup') {
+      return discordResponse(response, await completeSetup(interaction));
+    }
+    if (interaction.type === 2) return discordResponse(response, await handleCommand(interaction));
+    return discordResponse(response, message('Unsupported interaction.'));
+  } catch (error) {
+    const detail = error.response?.data?.error?.message || error.response?.data?.message || error.message;
+    console.error(JSON.stringify({ event: 'discord_interaction_failed', message: detail }));
+    return discordResponse(response, message(`Could not complete that command: ${detail}`));
+  }
+}

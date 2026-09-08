@@ -5,6 +5,7 @@ import {
   config,
   enrichWalmartCandidate,
   fetchActiveStudents,
+  fetchPortalStudentByEmail,
   fetchSellerStorefrontAsins,
   fetchWalmartCatalog,
   hydrateKeepaProductsByAsin,
@@ -64,6 +65,24 @@ async function handleStudentStorefronts(request, response, identity) {
   }
   const token = bearerToken(request);
   const headers = supabaseHeaders(token);
+  const student = await fetchPortalStudentByEmail(identity.email);
+  if (!student) return jsonResponse(response, 403, { error: 'This Google email is not an active Seller Syndicate student' });
+  // A student may enroll and add stores in Discord before their first portal
+  // login. Claim those rows on first Google-authenticated portal use.
+  if (config.supabaseServiceRoleKey) {
+    await axios.patch(storefrontTableUrl(), {
+      user_id: identity.userId,
+      airtable_student_id: student.id,
+    }, {
+      headers: {
+        apikey: config.supabaseServiceRoleKey,
+        Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
+        'Content-Type': 'application/json',
+      },
+      params: { owner_email: `eq.${identity.email}`, user_id: 'is.null' },
+      timeout: config.requestTimeoutMs,
+    });
+  }
   if (request.method === 'GET') {
     const result = await axios.get(storefrontTableUrl(), {
       headers,
@@ -78,6 +97,7 @@ async function handleStudentStorefronts(request, response, identity) {
     const label = String(body.label || '').trim().slice(0, 80);
     const result = await axios.post(storefrontTableUrl(), [{
       user_id: identity.userId,
+      airtable_student_id: student.id,
       owner_email: identity.email,
       seller_id: sellerId,
       label,
