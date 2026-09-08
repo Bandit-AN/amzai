@@ -335,7 +335,7 @@ runButton.addEventListener('click', async () => {
 
 async function initializePortal() {
   try {
-    const response = await fetch('/api/config');
+    const response = await fetch('/api/auth');
     const publicConfig = await response.json();
     if (publicConfig.supabase && globalThis.supabase?.createClient) {
       supabaseClient = globalThis.supabase.createClient(publicConfig.supabase.url, publicConfig.supabase.anonKey);

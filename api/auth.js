@@ -17,6 +17,13 @@ const sessionCookie = (value, maxAge) => [
 ].join('; ');
 
 export default async function handler(request, response) {
+  if (request.method === 'GET') {
+    return jsonResponse(response, 200, {
+      supabase: config.supabaseUrl && config.supabaseAnonKey
+        ? { url: config.supabaseUrl, anonKey: config.supabaseAnonKey }
+        : null,
+    });
+  }
   if (request.method === 'DELETE') {
     response.setHeader('Set-Cookie', sessionCookie('', 0));
     return jsonResponse(response, 200, { ok: true });
