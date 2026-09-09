@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   analysisDelaySeconds,
   config,
-  fetchActiveStudents,
+  fetchAiSourcingStudents,
   fetchKeepaTokenStatus,
   fetchTargetCatalog,
   filterRecentlyAnalyzedCandidates,
@@ -57,7 +57,7 @@ export default async function handler(request, response) {
     const candidateLimit = config.targetDetailLookupLimit;
     const discoveryPoolLimit = Math.min(config.maxCandidates, candidateLimit * 5);
     const [students, discovered] = await Promise.all([
-      fetchActiveStudents(),
+      fetchAiSourcingStudents(),
       fetchTargetCatalog(discoveryPoolLimit, sourceUrls),
     ]);
     if (students.length === 0) throw new Error('No active students were found');

@@ -1,7 +1,7 @@
 import {
   cachedValue,
   config,
-  fetchActiveStudents,
+  fetchAiSourcingStudents,
   fetchKeepaTokenStatus,
   getRunSummary,
   jsonResponse,
@@ -17,7 +17,7 @@ export default async function handler(request, response) {
     const [runIds, keepa, students] = await Promise.all([
       redis.lrange('runs:recent', 0, 9),
       cachedValue('cache:keepa:status', 60, fetchKeepaTokenStatus),
-      fetchActiveStudents(),
+      fetchAiSourcingStudents(),
     ]);
     const runs = (await Promise.all(runIds.map((runId) => getRunSummary(runId)))).filter(Boolean);
     return jsonResponse(response, 200, {

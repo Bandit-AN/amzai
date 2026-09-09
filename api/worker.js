@@ -7,6 +7,7 @@ import {
   discordDeliveryLockKey,
   discordPayloads,
   emptyDiscordPayload,
+  fetchAiSourcingStudents,
   jsonResponse,
   readJsonBody,
   redis,
@@ -54,6 +55,17 @@ export default async function handler(request, response) {
     ]);
     const student = meta?.students?.find((item) => item.id === studentId);
     if (!student || !Array.isArray(deals)) throw new Error('Student or assignment was not found');
+
+    // Runs retain a snapshot of their recipients. Revalidate the entitlement at
+    // delivery time so an old or retried job cannot post sourcing results into a
+    // spy-tool-only student channel.
+    const currentRecipients = await fetchAiSourcingStudents({ fresh: true });
+    if (!currentRecipients.some((item) => item.id === studentId)) {
+      await redis.set(`run:${runId}:delivered:${studentId}`, true, { ex: config.runTtlSeconds });
+      return jsonResponse(response, 200, {
+        ok: true, runId, studentId, delivered: 0, suppressed: 'AI sourcing is not enabled',
+      });
+    }
 
     const availabilityChecks = await Promise.all(deals.map(async (deal) => {
       if (String(deal.sourceRetailer || '').toLowerCase() === 'target'

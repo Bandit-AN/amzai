@@ -6,7 +6,7 @@ import {
   candidatePriority,
   config,
   dailyWalmartWindow,
-  fetchActiveStudents,
+  fetchAiSourcingStudents,
   fetchKeepaTokenStatus,
   fetchWalmartCatalog,
   filterRecentlyAnalyzedCandidates,
@@ -113,10 +113,10 @@ export default async function handler(request, response) {
       candidateLimit * config.walmartDiscoveryMultiplier,
     );
     const [fetchedStudents, rawScrapedCandidates] = await Promise.all([
-      fetchActiveStudents(),
+      fetchAiSourcingStudents(),
       fetchWalmartCatalog(discoveryPoolLimit, sourceUrls),
     ]);
-    if (fetchedStudents.length === 0) throw new Error('No active students with Discord webhooks were found');
+    if (fetchedStudents.length === 0) throw new Error('No students have AI Sourcing Enabled');
     const dealEligible = rawScrapedCandidates.filter(hasWalmartDealSignal);
     const excludedNoDealSignal = rawScrapedCandidates.length - dealEligible.length;
     const brandEligible = dealEligible.filter((candidate) => !isExcludedWalmartBrand(candidate));

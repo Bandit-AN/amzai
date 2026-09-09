@@ -38,6 +38,7 @@ Create a table named `Students` with these exact fields:
 | `Minimum Monthly Sales` | Number | Optional; defaults to platform value |
 | `Maximum Cost` | Currency | Optional |
 | `Excluded Brands` | Long text | Optional |
+| `AI Sourcing Enabled` | Checkbox | Check only on the dedicated AI sourcing leads destination; leave unchecked for spy-tool-only students |
 
 Create a scoped Airtable personal access token with `data.records:read` and `data.records:write` access to this base. The portal writes only student sourcing preferences and onboarding status. Discord webhooks remain admin-managed and are never returned to the browser.
 

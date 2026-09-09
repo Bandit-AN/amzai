@@ -44,6 +44,7 @@ const {
   salesVelocityManualReviewEntry,
   sanitizedRetryError,
   scrapingAntRequestOptions,
+  selectAiSourcingStudents,
   selectUnseenCandidates,
   storefrontDiscordPayload,
   storefrontDiscordPayloads,
@@ -56,6 +57,12 @@ const {
   walmartUrlsForFocus,
   withinBuyCostLimit,
 } = await import('../lib/platform.js');
+
+test('AI sourcing recipients require explicit entitlement', () => {
+  const spyStudent = { id: 'spy-only', aiSourcingEnabled: false };
+  const sourcingChannel = { id: 'sourcing-leads', aiSourcingEnabled: true };
+  assert.deepEqual(selectAiSourcingStudents([spyStudent, sourcingChannel]), [sourcingChannel]);
+});
 
 const automaticDeal = (overrides = {}) => ({
   matchMethod: 'UPC',
