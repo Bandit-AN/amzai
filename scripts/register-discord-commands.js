@@ -20,6 +20,12 @@ const commands = [
     options: [{ type: 3, name: 'storefront', description: 'Amazon seller ID', required: true }],
   },
   { name: 'viewlist', description: 'View your tracked Amazon storefronts' },
+  {
+    name: 'scan',
+    description: 'Admin: start a 100-product Walmart AI sourcing scan',
+    default_member_permissions: '8',
+    dm_permission: false,
+  },
   { name: 'help', description: 'View Buy Box Bandit commands' },
 ];
 

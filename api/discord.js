@@ -1,7 +1,14 @@
 import axios from 'axios';
+import { randomUUID } from 'node:crypto';
 import nacl from 'tweetnacl';
 
-import { config as platformConfig, fetchDiscordStudent, jsonResponse, upsertDiscordStudent } from '../lib/platform.js';
+import {
+  config as platformConfig,
+  fetchDiscordStudent,
+  jsonResponse,
+  publishMessage,
+  upsertDiscordStudent,
+} from '../lib/platform.js';
 
 export const config = { api: { bodyParser: false } };
 
@@ -48,6 +55,15 @@ function authorizedStudentRole(interaction) {
     && interaction.member?.roles?.includes(platformConfig.discordStudentRoleId);
 }
 
+export function isDiscordAdministrator(interaction) {
+  try {
+    return interaction.guild_id === platformConfig.discordGuildId
+      && (BigInt(interaction.member?.permissions || '0') & 8n) === 8n;
+  } catch {
+    return false;
+  }
+}
+
 export function sellerIdFrom(value) {
   const raw = String(value || '').trim();
   let sellerId = raw;
@@ -85,6 +101,12 @@ const discordCommands = [
     { type: 3, name: 'storefront', description: 'Amazon seller ID', required: true },
   ] },
   { name: 'viewlist', description: 'View your tracked Amazon storefronts' },
+  {
+    name: 'scan',
+    description: 'Admin: start a 100-product Walmart AI sourcing scan',
+    default_member_permissions: '8',
+    dm_permission: false,
+  },
   { name: 'help', description: 'View Buy Box Bandit commands' },
 ];
 
@@ -131,6 +153,18 @@ async function completeSetup(interaction) {
 
 async function handleCommand(interaction) {
   const command = interaction.data?.name;
+  if (command === 'scan') {
+    if (!isDiscordAdministrator(interaction)) {
+      return message('Only server administrators can start AI sourcing scans.');
+    }
+    const requestId = randomUUID();
+    await publishMessage({
+      url: `${platformConfig.publicBaseUrl}/api/cron`,
+      body: { requestedFrom: 'discord', requestedBy: interaction.member?.user?.id },
+      deduplicationId: `discord-walmart-scan-${requestId}`,
+    });
+    return message(`✅ **Walmart sourcing scan queued**\n\nTarget: **100 fresh eligible products**\nRequest ID: \`${requestId}\`\nResults will be sent only to the private AI sourcing leads destination.`);
+  }
   if (command === 'setup') {
     if (!authorizedStudentRole(interaction)) return message('You need the Buy Box Bandit Student role to enroll.');
     return {
