@@ -5,8 +5,10 @@ import nacl from 'tweetnacl';
 import {
   config as platformConfig,
   fetchDiscordStudent,
+  getRunSummary,
   jsonResponse,
   publishMessage,
+  redis,
   upsertDiscordStudent,
 } from '../lib/platform.js';
 
@@ -107,6 +109,12 @@ const discordCommands = [
     default_member_permissions: '8',
     dm_permission: false,
   },
+  {
+    name: 'progress',
+    description: 'Admin: check the current AI sourcing queue',
+    default_member_permissions: '8',
+    dm_permission: false,
+  },
   { name: 'help', description: 'View Buy Box Bandit commands' },
 ];
 
@@ -151,6 +159,30 @@ async function completeSetup(interaction) {
   return message(`✅ **The Buy Box Bandit is ready**\n\nStudent: **${student.name}**\nLogin email: **${email}**\nDashboard: https://app.sellersyndicate.org\nPrivate alerts: <#${interaction.channel_id}>\nTracked storefronts: **0**`);
 }
 
+async function sourcingProgressMessage() {
+  const [collectionId, recentRunIds] = await Promise.all([
+    redis.get('walmart:freshCollection:active'),
+    redis.lrange('runs:recent', 0, 9),
+  ]);
+  if (collectionId) {
+    const collection = await redis.get(`walmart:freshCollection:${collectionId}`);
+    const collected = Array.isArray(collection?.candidates) ? collection.candidates.length : 0;
+    const required = platformConfig.walmartEligibleCohortSize;
+    return `🔎 **Walmart discovery in progress**\n\nFresh eligible products: **${collected}/${required}**\nPages searched: **${Number(collection?.pagesScanned || 0)}/${Number(collection?.totalSourcePages || 0)}**\nCollection ID: \`${collectionId}\``;
+  }
+
+  const summaries = (await Promise.all(recentRunIds.map((runId) => getRunSummary(runId))))
+    .filter(Boolean);
+  const run = summaries.find((item) => item.status === 'analyzing') || summaries[0];
+  if (!run) return 'There is no current or recent AI sourcing run.';
+  const percent = run.totalJobs > 0
+    ? Math.min(100, Math.round((run.completedJobs / run.totalJobs) * 100))
+    : 0;
+  const delivery = run.delivery.reduce((total, item) => total + (item.delivered ? item.assigned : 0), 0);
+  const heading = run.status === 'analyzing' ? '⚙️ **AI sourcing queue**' : '✅ **Most recent sourcing run**';
+  return `${heading}\n\nStatus: **${run.status}**\nProgress: **${run.completedJobs}/${run.totalJobs} (${percent}%)**\nProducts in cohort: **${run.candidates}**\nUPC confirmed: **${run.funnel.upcConfirmed}**\nExact Amazon matches: **${run.funnel.exactAmazonMatchFound ?? 0}**\nQualified: **${run.qualifiedDeals}**\nErrors: **${run.analysisErrors}**\nDelivered: **${delivery}**\nRun ID: \`${run.runId}\``;
+}
+
 async function handleCommand(interaction) {
   const command = interaction.data?.name;
   if (command === 'scan') {
@@ -164,6 +196,12 @@ async function handleCommand(interaction) {
       deduplicationId: `discord-walmart-scan-${requestId}`,
     });
     return message(`✅ **Walmart sourcing scan queued**\n\nTarget: **100 fresh eligible products**\nRequest ID: \`${requestId}\`\nResults will be sent only to the private AI sourcing leads destination.`);
+  }
+  if (command === 'progress') {
+    if (!isDiscordAdministrator(interaction)) {
+      return message('Only server administrators can view the AI sourcing queue.');
+    }
+    return message(await sourcingProgressMessage());
   }
   if (command === 'setup') {
     if (!authorizedStudentRole(interaction)) return message('You need the Buy Box Bandit Student role to enroll.');

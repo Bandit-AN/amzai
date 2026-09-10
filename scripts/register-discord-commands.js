@@ -26,6 +26,12 @@ const commands = [
     default_member_permissions: '8',
     dm_permission: false,
   },
+  {
+    name: 'progress',
+    description: 'Admin: check the current AI sourcing queue',
+    default_member_permissions: '8',
+    dm_permission: false,
+  },
   { name: 'help', description: 'View Buy Box Bandit commands' },
 ];
 
