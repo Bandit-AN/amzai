@@ -141,6 +141,10 @@ On each run (`/api/storefronts`, once daily by default in `vercel.json`, offset 
 
 For each genuinely new ASIN (capped at `STOREFRONT_NEW_LISTINGS_PER_RUN_LIMIT`, default 20 per run), the product is fetched from Keepa first. `STOREFRONT_BLOCKED_BRANDS` (defaults to a list of gated/high-IP-risk brands: Nike, Adidas, LEGO, Barbie, Hot Wheels, Milwaukee, Disney, Hasbro, Carhartt, New Balance, Hoka, Converse) is checked against that Keepa product's own title/brand before anything else — a match there means no alert at all, not even a plain new-listing notice, since it's still marked seen so it never resurfaces. Everything else gets Walmart searched by title for a plausible source. Only the top few search results get the expensive per-item detail-page re-check (search cards don't carry a UPC, only detail pages do), and a match only counts as a "qualified" deal card if it clears the exact same bar a normal qualified deal does: UPC match, identity/variant/quantity compatibility, the ROI/profit/sales-velocity thresholds, and Gemini's exact-match verification. Every non-blocked new listing gets a Discord alert regardless; only ones with a verified, qualifying Walmart source get the full deal-card fields — everything else is a plain "new listing, no sourcing match found" notice.
 
+## Purchase capture ledger
+
+The first order-tracking phase uses Supabase as the authoritative multi-tenant ledger and treats Google Sheets as a synchronized reporting view. Run [`supabase/order-ledger.sql`](supabase/order-ledger.sql) once in the Supabase SQL editor. It provisions personal organizations for existing and future Google-authenticated users, card aliases containing only labels/last-four digits, purchase orders and line items, two-step capture sessions, Google Sheet connection metadata, sync records, indexes, and organization-scoped Row Level Security. OAuth refresh tokens and full payment-card data must never be stored in these tables.
+
 ## Run locally
 
 Use Node 20.18.1 or newer:
