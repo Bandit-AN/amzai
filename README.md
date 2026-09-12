@@ -69,6 +69,8 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `WORKER_SECRET`: a separate random secret QStash forwards to internal endpoints.
 - `PORTAL_SESSION_SECRET`: a third random secret used only to sign 12-hour student login cookies.
 - `ONBOARDING_VIDEO_URL`: an embeddable HTTPS video URL; leave blank to show the branded placeholder.
+- `GOOGLE_PICKER_API_KEY`: the browser key used only to open Google Picker. Restrict it in Google Cloud to the Google Picker API and the production/preview website origins.
+- `GOOGLE_CLOUD_PROJECT_NUMBER`: the numeric Google Cloud project number used as the Picker app ID. Both Picker values are intentionally returned to the browser; they are identifiers, not OAuth client secrets.
 - `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
 - `KEEPA_SEARCH_RESULTS`: number of Amazon candidates evaluated per Walmart product from the direct UPC/EAN code lookup; defaults to `5`, capped at `10`.
 - `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative scheduling budget for a direct UPC/EAN product-code lookup that may return multiple ASINs; defaults to `15`.
@@ -144,6 +146,8 @@ For each genuinely new ASIN (capped at `STOREFRONT_NEW_LISTINGS_PER_RUN_LIMIT`, 
 ## Purchase capture ledger
 
 The first order-tracking phase uses Supabase as the authoritative multi-tenant ledger and treats Google Sheets as a synchronized reporting view. Run [`supabase/order-ledger.sql`](supabase/order-ledger.sql) once in the Supabase SQL editor. It provisions personal organizations for existing and future Google-authenticated users, card aliases containing only labels/last-four digits, purchase orders and line items, two-step capture sessions, Google Sheet connection metadata, sync records, indexes, and organization-scoped Row Level Security. OAuth refresh tokens and full payment-card data must never be stored in these tables.
+
+The member portal's **Connect Google Sheet** button requests the narrow `drive.file` permission, opens Google Picker, and lets the signed-in member choose one workbook. The app verifies that the selected workbook contains `Order Tracking`, `Automated Order Expenses`, and `Backend`, then stores only its ID, title, and tab mapping in Supabase. This connection step does not modify any cells. A later sync worker will exchange short-lived Google authorization for row writes while Supabase remains the source of truth.
 
 ## Run locally
 

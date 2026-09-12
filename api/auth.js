@@ -22,6 +22,9 @@ export default async function handler(request, response) {
       supabase: config.supabaseUrl && config.supabaseAnonKey
         ? { url: config.supabaseUrl, anonKey: config.supabaseAnonKey }
         : null,
+      googlePicker: config.googlePickerApiKey && config.googleCloudProjectNumber
+        ? { apiKey: config.googlePickerApiKey, projectNumber: config.googleCloudProjectNumber }
+        : null,
     });
   }
   if (request.method === 'DELETE') {

@@ -14,6 +14,9 @@ let secret = sessionStorage.getItem('amzai_admin_secret') || '';
 let refreshTimer;
 let supabaseClient = null;
 let supabaseAccessToken = '';
+let googleProviderToken = '';
+let portalConfig = {};
+let sheetConnection = null;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
 })[character]);
@@ -203,6 +206,107 @@ async function loadStorefronts() {
   renderStorefronts(data.storefronts || []);
 }
 
+function renderSheetConnection(connection) {
+  sheetConnection = connection || null;
+  const badge = $('#sheetConnectionBadge');
+  badge.textContent = connection ? 'Connected' : 'Not connected';
+  badge.classList.toggle('ready', Boolean(connection));
+  $('#sheetConnectionTitle').textContent = connection?.spreadsheet_title || 'No spreadsheet selected';
+  $('#sheetConnectionDetail').textContent = connection
+    ? `Order Tracking + Automated Order Expenses · connected ${formatDate(connection.updated_at)}`
+    : 'Connect BeterAMZ MASTER to prepare order capture.';
+  $('#connectSheetButton').textContent = sessionStorage.getItem('bbb_google_drive_ready') === 'true'
+    ? 'Choose Google Sheet'
+    : (connection ? 'Change Google Sheet' : 'Connect Google Sheet');
+}
+
+async function loadSheetConnection() {
+  if (!supabaseAccessToken) return renderSheetConnection(null);
+  const data = await studentApi('/api/student?resource=sheet');
+  renderSheetConnection(data.connection);
+}
+
+async function authorizeGoogleSheetAccess() {
+  sessionStorage.setItem('bbb_google_drive_pending', 'true');
+  const { error } = await supabaseClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${window.location.origin}/`,
+      scopes: 'https://www.googleapis.com/auth/drive.file',
+      queryParams: { access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true' },
+    },
+  });
+  if (error) throw error;
+}
+
+async function waitForGooglePicker() {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (globalThis.gapi?.load) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (!globalThis.gapi?.load) throw new Error('Google Picker did not load. Refresh the page and try again.');
+  if (!globalThis.google?.picker) {
+    await new Promise((resolve, reject) => globalThis.gapi.load('picker', {
+      callback: resolve,
+      onerror: () => reject(new Error('Google Picker could not be loaded.')),
+      timeout: 5000,
+      ontimeout: () => reject(new Error('Google Picker timed out. Refresh and try again.')),
+    }));
+  }
+  if (!globalThis.google?.picker) throw new Error('Google Picker is unavailable. Refresh and try again.');
+}
+
+async function verifyAndSaveSpreadsheet(document) {
+  const spreadsheetId = String(document.id || '').trim();
+  const metadataResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=properties.title,sheets.properties.title`,
+    { headers: { Authorization: `Bearer ${googleProviderToken}` } },
+  );
+  const metadata = await metadataResponse.json().catch(() => ({}));
+  if (!metadataResponse.ok) {
+    sessionStorage.removeItem('bbb_google_drive_ready');
+    throw new Error(metadata.error?.message || 'Google Sheet access expired. Connect Google again.');
+  }
+  const tabs = new Set((metadata.sheets || []).map((sheet) => sheet.properties?.title));
+  const requiredTabs = ['Order Tracking', 'Automated Order Expenses', 'Backend'];
+  const missingTabs = requiredTabs.filter((tab) => !tabs.has(tab));
+  if (missingTabs.length) throw new Error(`That workbook is missing: ${missingTabs.join(', ')}`);
+  const data = await studentApi('/api/student?resource=sheet', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      spreadsheetId,
+      spreadsheetTitle: metadata.properties?.title || document.name || 'Google Sheet',
+    }),
+  });
+  renderSheetConnection(data.connection);
+  $('#sheetConnectionMessage').textContent = 'Spreadsheet connected. No order rows were changed.';
+}
+
+async function openGoogleSheetPicker() {
+  await waitForGooglePicker();
+  const { picker: pickerApi } = globalThis.google;
+  const view = new pickerApi.DocsView(pickerApi.ViewId.SPREADSHEETS)
+    .setIncludeFolders(false)
+    .setSelectFolderEnabled(false);
+  const picker = new pickerApi.PickerBuilder()
+    .addView(view)
+    .setOAuthToken(googleProviderToken)
+    .setDeveloperKey(portalConfig.googlePicker.apiKey)
+    .setAppId(portalConfig.googlePicker.projectNumber)
+    .setOrigin(window.location.origin)
+    .setCallback((data) => {
+      if (data[pickerApi.Response.ACTION] !== pickerApi.Action.PICKED) return;
+      const document = data[pickerApi.Response.DOCUMENTS]?.[0];
+      if (!document) return;
+      verifyAndSaveSpreadsheet(document).catch((error) => {
+        $('#sheetConnectionMessage').textContent = error.message;
+      });
+    })
+    .build();
+  picker.setVisible(true);
+}
+
 async function loadStudentPortal() {
   const data = await studentApi('/api/student');
   const student = data.student;
@@ -224,7 +328,7 @@ async function loadStudentPortal() {
     $('#onboardingVideo').classList.remove('hidden');
     $('#videoPlaceholder').classList.add('hidden');
   }
-  await loadStorefronts();
+  await Promise.all([loadStorefronts(), loadSheetConnection()]);
 }
 
 $('#studentTab').addEventListener('click', () => selectLoginTab(true));
@@ -306,9 +410,30 @@ $('#storefrontList').addEventListener('click', async (event) => {
   } catch (error) { $('#storefrontMessage').textContent = error.message; button.disabled = false; }
 });
 
+$('#connectSheetButton').addEventListener('click', async () => {
+  const status = $('#sheetConnectionMessage');
+  status.textContent = '';
+  try {
+    if (!supabaseAccessToken || !supabaseClient) throw new Error('Sign in with Google first.');
+    if (!portalConfig.googlePicker) throw new Error('Google Picker is not configured yet.');
+    const permissionReady = sessionStorage.getItem('bbb_google_drive_ready') === 'true';
+    if (!permissionReady || !googleProviderToken) {
+      status.textContent = 'Opening Google permission screen…';
+      await authorizeGoogleSheetAccess();
+      return;
+    }
+    await openGoogleSheetPicker();
+  } catch (error) {
+    status.textContent = error.message;
+  }
+});
+
 $('#studentLogoutButton').addEventListener('click', async () => {
   if (supabaseClient) await supabaseClient.auth.signOut().catch(() => {});
   supabaseAccessToken = '';
+  googleProviderToken = '';
+  sessionStorage.removeItem('bbb_google_drive_pending');
+  sessionStorage.removeItem('bbb_google_drive_ready');
   await fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
   studentView.classList.add('hidden'); loginView.classList.remove('hidden'); selectLoginTab(true);
 });
@@ -337,13 +462,24 @@ async function initializePortal() {
   try {
     const response = await fetch('/api/auth');
     const publicConfig = await response.json();
+    portalConfig = publicConfig;
     if (publicConfig.supabase && globalThis.supabase?.createClient) {
       supabaseClient = globalThis.supabase.createClient(publicConfig.supabase.url, publicConfig.supabase.anonKey);
       $('#googleLoginButton').disabled = false;
       const { data } = await supabaseClient.auth.getSession();
       supabaseAccessToken = data.session?.access_token || '';
+      googleProviderToken = data.session?.provider_token || '';
+      if (sessionStorage.getItem('bbb_google_drive_pending') === 'true' && googleProviderToken) {
+        sessionStorage.removeItem('bbb_google_drive_pending');
+        sessionStorage.setItem('bbb_google_drive_ready', 'true');
+      }
       supabaseClient.auth.onAuthStateChange((_event, session) => {
         supabaseAccessToken = session?.access_token || '';
+        googleProviderToken = session?.provider_token || '';
+        if (sessionStorage.getItem('bbb_google_drive_pending') === 'true' && googleProviderToken) {
+          sessionStorage.removeItem('bbb_google_drive_pending');
+          sessionStorage.setItem('bbb_google_drive_ready', 'true');
+        }
       });
     }
   } catch {}

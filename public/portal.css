@@ -162,6 +162,13 @@
 .login-divider { display: flex; align-items: center; gap: 12px; margin: 17px 0; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
 .login-divider::before, .login-divider::after { content: ""; height: 1px; background: var(--line); flex: 1; }
 .storefront-panel { margin-top: 14px; }
+.sheet-panel { margin-top: 14px; }
+.connection-badge { color: var(--muted); font-size: 12px; font-weight: 700; }
+.connection-badge.ready { color: var(--green); }
+.sheet-connection-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 11px; background: rgba(8, 17, 31, 0.5); }
+.sheet-connection-copy { min-width: 0; }
+.sheet-connection-copy strong, .sheet-connection-copy small { display: block; }
+.sheet-connection-copy small { color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
 .storefront-intro { color: var(--muted); line-height: 1.6; max-width: 850px; }
 .storefront-form { display: grid; grid-template-columns: 2fr 1fr auto; gap: 12px; align-items: end; margin-top: 20px; }
 .storefront-form label { display: grid; gap: 8px; color: #bec9d4; font-size: 13px; }
@@ -178,6 +185,8 @@
   }
   .storefront-form { grid-template-columns: 1fr; }
   .storefront-form .primary-button { width: 100%; }
+  .sheet-connection-row { align-items: stretch; flex-direction: column; }
+  .sheet-connection-row .primary-button { width: 100%; }
 }
 @media (max-width: 640px) {
   .two-fields {

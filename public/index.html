@@ -81,6 +81,21 @@
           </form>
         </article>
       </section>
+      <section class="panel sheet-panel">
+        <div class="panel-heading">
+          <div><span class="eyebrow">Order operations</span><h2>Google Sheet connection</h2></div>
+          <span class="connection-badge" id="sheetConnectionBadge">Not connected</span>
+        </div>
+        <p class="storefront-intro">Choose the workbook Buy Box Bandit will use for confirmed purchase orders and expenses. Access is limited to the file you select.</p>
+        <div class="sheet-connection-row">
+          <div class="sheet-connection-copy">
+            <strong id="sheetConnectionTitle">No spreadsheet selected</strong>
+            <small id="sheetConnectionDetail">Connect BeterAMZ MASTER to prepare order capture.</small>
+          </div>
+          <button class="primary-button" id="connectSheetButton" type="button">Connect Google Sheet</button>
+        </div>
+        <p class="form-error" id="sheetConnectionMessage" role="status"></p>
+      </section>
       <section class="panel storefront-panel">
         <div class="panel-heading">
           <div><span class="eyebrow">Competitor intelligence</span><h2>Tracked Amazon storefronts</h2></div>
@@ -163,6 +178,7 @@
     </section>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://apis.google.com/js/api.js" async defer></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
