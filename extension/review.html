@@ -36,6 +36,9 @@
           <label><input type="radio" name="captureKind" value="source" checked><span><b>1</b> Retailer order</span></label>
           <label><input type="radio" name="captureKind" value="amazon"><span><b>2</b> Amazon listing</span></label>
         </div>
+        <label class="item-selector hidden" id="itemSelectorWrap">Amazon listing for
+          <select id="itemSelector"></select>
+        </label>
         <button class="primary-button full" id="analyzeButton" type="button" disabled>Analyze screenshot</button>
         <p class="status-message" id="statusMessage"></p>
 
@@ -48,8 +51,9 @@
             <label>Receiving location<select id="locationInput"><option>House</option><option>PREP CENTER A</option><option>PREP CENTER B</option></select></label>
             <label class="span-2">Product title<input id="productTitleInput" required></label>
             <label>Quantity<input id="quantityInput" type="number" min="0.01" step="0.01" required></label>
-            <label>Total paid<input id="totalInput" type="number" min="0" step="0.01" required></label>
+            <label>Line total<input id="lineTotalInput" type="number" min="0" step="0.01"></label>
             <label>Unit cost<input id="unitCostInput" type="number" min="0" step="0.01"></label>
+            <label>Order total<input id="totalInput" type="number" min="0" step="0.01" required></label>
             <label>Subtotal<input id="subtotalInput" type="number" min="0" step="0.01"></label>
             <label>Tax<input id="taxInput" type="number" min="0" step="0.01"></label>
             <label>Shipping<input id="shippingInput" type="number" min="0" step="0.01"></label>

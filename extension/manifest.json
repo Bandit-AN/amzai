@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "The Buy Box Bandit — Order Capture",
   "description": "Capture retailer orders and Amazon listings, review every field, then save to the Buy Box Bandit ledger.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "permissions": [
     "activeTab",
     "tabs",

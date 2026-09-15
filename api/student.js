@@ -137,15 +137,42 @@ async function handleOrderCapture(request, response, identity) {
     if (session.status !== 'amazon_linked') throw new Error('Capture the retailer order and Amazon listing before confirming');
     const retailer = cleanText(body.retailer, 120);
     const orderNumber = cleanText(body.orderNumber, 120);
-    const productTitle = cleanText(body.productTitle);
-    const asin = cleanText(body.asin, 10).toUpperCase();
-    const quantity = Number(body.quantity);
     const total = cleanMoney(body.total);
-    const unitCost = cleanMoney(body.unitCost, total && quantity > 0 ? total / quantity : null);
-    if (!retailer || !productTitle) throw new Error('Retailer and product title are required');
-    if (!/^B[A-Z0-9]{9}$/.test(asin)) throw new Error('Enter a valid 10-character Amazon ASIN');
-    if (!(quantity > 0 && quantity <= 100000)) throw new Error('Quantity must be greater than zero');
+    const rawItems = Array.isArray(body.items) && body.items.length ? body.items.slice(0, 10) : [body];
+    if (!retailer) throw new Error('Retailer is required');
     if (total === null) throw new Error('Order total is required');
+    const submittedItems = rawItems.map((rawItem, index) => {
+      const productTitle = cleanText(rawItem.productTitle);
+      const asin = cleanText(rawItem.asin, 10).toUpperCase();
+      const quantity = Number(rawItem.quantity);
+      if (!productTitle) throw new Error(`Product ${index + 1} needs a title`);
+      if (!/^B[A-Z0-9]{9}$/.test(asin)) throw new Error(`Product ${index + 1} needs a valid 10-character Amazon ASIN`);
+      if (!(quantity > 0 && quantity <= 100000)) throw new Error(`Product ${index + 1} needs a quantity greater than zero`);
+      const lineTotal = cleanMoney(rawItem.lineTotal);
+      const unitCost = cleanMoney(
+        rawItem.unitCost,
+        lineTotal !== null ? lineTotal / quantity : (rawItems.length === 1 && total ? total / quantity : null),
+      );
+      if (rawItems.length > 1 && lineTotal === null && unitCost === null) {
+        throw new Error(`Product ${index + 1} needs a line total or unit cost`);
+      }
+      return {
+        productTitle,
+        asin,
+        quantity,
+        unitCost,
+        lineTotal: lineTotal ?? (unitCost !== null ? Math.round(unitCost * quantity * 100) / 100 : (rawItems.length === 1 ? total : null)),
+        retailerSku: cleanText(rawItem.retailerSku, 120) || null,
+        variant: cleanText(rawItem.variant, 200) || null,
+        amazonUrl: cleanUrl(rawItem.amazonUrl) || `https://www.amazon.com/dp/${asin}`,
+        amazonTitle: cleanText(rawItem.amazonTitle) || null,
+        isBundle: rawItem.isBundle === true,
+        extractionConfidence: Math.min(1, Math.max(0, Number(rawItem.extractionConfidence) || 0)),
+      };
+    });
+    if (new Set(submittedItems.map((item) => item.asin)).size !== submittedItems.length) {
+      throw new Error('Each product in an order must use a distinct ASIN');
+    }
     const orderedAtDate = new Date(body.orderedAt || Date.now());
     if (Number.isNaN(orderedAtDate.getTime())) throw new Error('Order date is invalid');
     const lastFour = /^\d{4}$/.test(cleanText(body.cardLastFour, 4)) ? cleanText(body.cardLastFour, 4) : '';
@@ -219,52 +246,49 @@ async function handleOrderCapture(request, response, identity) {
       }, 'Could not create the purchase order');
       order = orderRows[0];
     }
-    let item;
+    const items = [];
     try {
-      const itemPayload = {
-          organization_id: membership.organization_id,
-          purchase_order_id: order.id,
-          product_title: productTitle,
-          retailer_sku: cleanText(body.retailerSku, 120) || null,
-          variant: cleanText(body.variant, 200) || null,
-          quantity,
-          unit_cost: unitCost,
-          line_total: cleanMoney(body.lineTotal, total),
-          asin,
-          amazon_url: cleanUrl(body.amazonUrl) || `https://www.amazon.com/dp/${asin}`,
-          amazon_title: cleanText(body.amazonTitle) || null,
-          is_bundle: body.isBundle === true,
-          extraction_confidence: Math.min(1, Math.max(0, Number(body.extractionConfidence) || 0)),
-      };
       const existingItems = await supabaseJson(
         `${base}/purchase_order_items?select=*&organization_id=eq.${membership.organization_id}&purchase_order_id=eq.${order.id}`,
         { headers },
-        'Could not check the existing purchase-order item',
+        'Could not check the existing purchase-order items',
       );
-      const existingItem = existingItems.find((candidate) => candidate.asin === asin);
-      if (!existingItem && existingItems.length) {
-        const conflict = new Error('This retailer order number is already saved with a different ASIN. Multi-product order capture is not enabled yet.');
-        conflict.status = 409;
-        throw conflict;
-      }
-      if (existingItem) {
-        const itemRows = await supabaseJson(
-          `${base}/purchase_order_items?id=eq.${existingItem.id}&organization_id=eq.${membership.organization_id}`,
-          {
-            method: 'PATCH',
+      for (const submittedItem of submittedItems) {
+        const itemPayload = {
+          organization_id: membership.organization_id,
+          purchase_order_id: order.id,
+          product_title: submittedItem.productTitle,
+          retailer_sku: submittedItem.retailerSku,
+          variant: submittedItem.variant,
+          quantity: submittedItem.quantity,
+          unit_cost: submittedItem.unitCost,
+          line_total: submittedItem.lineTotal,
+          asin: submittedItem.asin,
+          amazon_url: submittedItem.amazonUrl,
+          amazon_title: submittedItem.amazonTitle,
+          is_bundle: submittedItem.isBundle,
+          extraction_confidence: submittedItem.extractionConfidence,
+        };
+        const existingItem = existingItems.find((candidate) => candidate.asin === submittedItem.asin);
+        if (existingItem) {
+          const itemRows = await supabaseJson(
+            `${base}/purchase_order_items?id=eq.${existingItem.id}&organization_id=eq.${membership.organization_id}`,
+            {
+              method: 'PATCH',
+              headers: { ...headers, Prefer: 'return=representation' },
+              body: JSON.stringify(itemPayload),
+            },
+            'Could not update an existing purchase-order item',
+          );
+          items.push(itemRows[0] || existingItem);
+        } else {
+          const itemRows = await supabaseJson(`${base}/purchase_order_items`, {
+            method: 'POST',
             headers: { ...headers, Prefer: 'return=representation' },
-            body: JSON.stringify(itemPayload),
-          },
-          'Could not update the existing purchase-order item',
-        );
-        item = itemRows[0] || existingItem;
-      } else {
-        const itemRows = await supabaseJson(`${base}/purchase_order_items`, {
-          method: 'POST',
-          headers: { ...headers, Prefer: 'return=representation' },
-          body: JSON.stringify([itemPayload]),
-        }, 'Could not create the purchase-order item');
-        item = itemRows[0];
+            body: JSON.stringify([itemPayload]),
+          }, 'Could not create a purchase-order item');
+          items.push(itemRows[0]);
+        }
       }
       const confirmedAt = new Date().toISOString();
       const confirmedRows = await supabaseJson(
@@ -303,20 +327,20 @@ async function handleOrderCapture(request, response, identity) {
         await supabaseJson(`${base}/google_sheet_sync_records`, {
           method: 'POST',
           headers,
-          body: JSON.stringify(['Order Tracking', 'Automated Order Expenses'].map((targetTab) => ({
+          body: JSON.stringify(items.flatMap((item) => ['Order Tracking', 'Automated Order Expenses'].map((targetTab) => ({
             organization_id: membership.organization_id,
             connection_id: connection.id,
             purchase_order_id: order.id,
             purchase_order_item_id: item.id,
             target_tab: targetTab,
             status: 'pending',
-          }))),
+          })))),
         }, 'Could not queue the Google Sheet sync');
       } catch (error) {
         syncQueueError = cleanText(error.message, 500);
       }
     }
-    return jsonResponse(response, 201, { ok: true, order, item, cardAlias, connection, syncQueueError });
+    return jsonResponse(response, 201, { ok: true, order, item: items[0], items, cardAlias, connection, syncQueueError });
   }
 
   if (action === 'sync_status') {
@@ -324,11 +348,12 @@ async function handleOrderCapture(request, response, identity) {
     const connectionId = cleanText(body.connectionId, 36);
     if (!validUuid(orderId) || !validUuid(connectionId)) throw new Error('Invalid sync record');
     const status = body.status === 'synced' ? 'synced' : 'failed';
-    for (const record of Array.isArray(body.records) ? body.records.slice(0, 2) : []) {
+    for (const record of Array.isArray(body.records) ? body.records.slice(0, 20) : []) {
       const targetTab = ['Order Tracking', 'Automated Order Expenses'].includes(record.targetTab) ? record.targetTab : null;
       if (!targetTab) continue;
+      const itemFilter = validUuid(record.itemId) ? `&purchase_order_item_id=eq.${record.itemId}` : '';
       await supabaseJson(
-        `${base}/google_sheet_sync_records?organization_id=eq.${membership.organization_id}&connection_id=eq.${connectionId}&purchase_order_id=eq.${orderId}&target_tab=eq.${encodeURIComponent(targetTab)}`,
+        `${base}/google_sheet_sync_records?organization_id=eq.${membership.organization_id}&connection_id=eq.${connectionId}&purchase_order_id=eq.${orderId}${itemFilter}&target_tab=eq.${encodeURIComponent(targetTab)}`,
         {
           method: 'PATCH',
           headers,

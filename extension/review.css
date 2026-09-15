@@ -39,6 +39,8 @@ summary { cursor:pointer; }
 .stage-selector b { display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#eee8df; }
 .stage-selector input:checked + span { border-color:#e4a22f; background:#fff8eb; }
 .stage-selector input:checked + span b { background:#171717; color:#fff; }
+.item-selector { display:grid; gap:6px; margin:0 0 12px; color:#5d574f; font-size:11px; }
+.item-selector select { width:100%; border:1px solid #d8d1c8; border-radius:9px; padding:10px; background:#fff; }
 .status-message { min-height:21px; margin:10px 0; font-size:12px; color:var(--green); }
 .status-message.error { color:var(--red); }
 .review-form { margin-top:19px; padding-top:18px; border-top:1px solid var(--line); }

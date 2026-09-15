@@ -155,7 +155,7 @@ Never upload a screenshot containing a full card number, CVV, account password, 
 
 ### Browser extension order capture
 
-The unpacked Chrome/Edge extension in [`extension`](extension) adds a `Command+Shift+Y` shortcut on macOS (`Ctrl+Shift+Y` elsewhere). It captures the visible browser tab, opens an isolated review page, and makes no database or spreadsheet change until the member reviews every field and clicks **Confirm and commit order**. Use it in two stages: capture the retailer order, then capture the exact Amazon listing. The first version commits one product line per capture workflow.
+The unpacked Chrome/Edge extension in [`extension`](extension) adds a `Command+Shift+Y` shortcut on macOS (`Ctrl+Shift+Y` elsewhere). It captures the visible browser tab, opens an isolated review page, and makes no database or spreadsheet change until the member reviews every field and clicks **Confirm and commit order**. Capture the retailer order once, then capture the exact Amazon listing for each detected product. The product selector shows which lines are matched and blocks the final commit until every product has an ASIN. Each product becomes its own `Order Tracking` row; shared tax, shipping, and discounts are proportionally allocated so those rows reconcile to the retailer's actual order total.
 
 Install it once in Chrome:
 

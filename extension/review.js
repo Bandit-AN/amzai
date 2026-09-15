@@ -3,7 +3,7 @@ const $ = (selector) => document.querySelector(selector);
 let publicConfig = null;
 let authSession = null;
 let pendingCapture = null;
-let workflow = { sessionId: '', source: null, amazon: null, sourcePageUrl: '', amazonPageUrl: '' };
+let workflow = { sessionId: '', source: null, items: [], activeItemIndex: 0, sourcePageUrl: '' };
 let pendingSheetSync = null;
 
 const setStatus = (message, error = false) => {
@@ -173,8 +173,9 @@ function renderPendingCapture() {
   if (hasCapture) $('#capturePreview').src = pendingCapture.imageData;
   $('#pageTitle').textContent = pendingCapture?.pageTitle || 'No captured page';
   $('#pageUrl').textContent = pendingCapture?.pageUrl || 'Press Command+Shift+Y on a webpage';
-  const nextKind = workflow.sessionId && workflow.source && !workflow.amazon ? 'amazon' : 'source';
+  const nextKind = workflow.sessionId && workflow.source ? 'amazon' : 'source';
   selectKind(nextKind);
+  renderItemSelector();
   $('#analyzeButton').disabled = !authSession || !hasCapture;
 }
 
@@ -186,17 +187,88 @@ const localDateTime = (value) => {
 
 const setNumber = (selector, value) => { $(selector).value = Number.isFinite(Number(value)) ? Number(value) : ''; };
 
+function normalizeWorkflow(value = workflow) {
+  const normalized = { ...value };
+  if (!Array.isArray(normalized.items) || !normalized.items.length) {
+    normalized.items = (normalized.source?.items || []).map((sourceItem, index) => ({
+      source: sourceItem,
+      amazon: index === 0 ? normalized.amazon || null : null,
+      amazonPageUrl: index === 0 ? normalized.amazonPageUrl || '' : '',
+    }));
+  }
+  normalized.activeItemIndex = Math.min(
+    Math.max(0, Number(normalized.activeItemIndex) || 0),
+    Math.max(0, normalized.items.length - 1),
+  );
+  delete normalized.amazon;
+  delete normalized.amazonPageUrl;
+  return normalized;
+}
+
+function activeMatch() {
+  return workflow.items?.[workflow.activeItemIndex] || null;
+}
+
+function renderItemSelector() {
+  const select = $('#itemSelector');
+  const items = workflow.items || [];
+  $('#itemSelectorWrap').classList.toggle('hidden', items.length < 2 || !workflow.source);
+  select.replaceChildren(...items.map((match, index) => {
+    const option = document.createElement('option');
+    option.value = String(index);
+    const title = String(match.source?.productTitle || `Product ${index + 1}`).slice(0, 70);
+    option.textContent = `${match.amazon ? '✓' : '○'} ${index + 1}. ${title}`;
+    return option;
+  }));
+  select.value = String(workflow.activeItemIndex || 0);
+}
+
+function saveActiveItemFields() {
+  const match = activeMatch();
+  if (!match || $('#reviewForm').classList.contains('hidden')) return;
+  workflow.source = {
+    ...workflow.source,
+    retailer: $('#retailerInput').value,
+    orderNumber: $('#orderNumberInput').value,
+    orderedAt: $('#orderedAtInput').value,
+    total: $('#totalInput').value,
+    subtotal: $('#subtotalInput').value,
+    tax: $('#taxInput').value,
+    shipping: $('#shippingInput').value,
+    discount: $('#discountInput').value,
+    cardIssuer: $('#cardIssuerInput').value,
+    cardLastFour: $('#cardLastFourInput').value,
+  };
+  match.source = {
+    ...match.source,
+    productTitle: $('#productTitleInput').value,
+    quantity: Number($('#quantityInput').value),
+    unitCost: $('#unitCostInput').value,
+    lineTotal: $('#lineTotalInput').value,
+    isBundle: $('#bundleInput').value === 'true',
+  };
+  if (match.amazon || $('#asinInput').value.trim()) {
+    match.amazon = {
+      ...(match.amazon || {}),
+      asin: $('#asinInput').value,
+      amazonTitle: $('#amazonTitleInput').value,
+    };
+  }
+}
+
 function renderReview() {
   const source = workflow.source;
-  const amazon = workflow.amazon;
+  const match = activeMatch();
+  const item = match?.source || {};
+  const amazon = match?.amazon;
   if (!source) return;
-  const item = source.items?.[0] || {};
-  $('#reviewForm').classList.toggle('hidden', !amazon);
+  $('#reviewForm').classList.toggle('hidden', !workflow.items.some((entry) => entry.amazon));
   $('#retailerInput').value = source.retailer || '';
   $('#orderNumberInput').value = source.orderNumber || '';
   $('#orderedAtInput').value = localDateTime(source.orderedAt);
   $('#productTitleInput').value = item.productTitle || '';
   $('#quantityInput').value = item.quantity || 1;
+  setNumber('#lineTotalInput', item.lineTotal);
   setNumber('#totalInput', source.total ?? item.lineTotal);
   setNumber('#unitCostInput', item.unitCost);
   setNumber('#subtotalInput', source.subtotal);
@@ -210,6 +282,10 @@ function renderReview() {
   $('#amazonTitleInput').value = amazon?.amazonTitle || '';
   const confidence = [source.confidence, amazon?.confidence].filter((value) => Number.isFinite(Number(value)));
   $('#confidenceLabel').textContent = confidence.length ? `${Math.round(Math.min(...confidence) * 100)}% minimum confidence` : 'Review required';
+  renderItemSelector();
+  const remaining = workflow.items.filter((entry) => !entry.amazon).length;
+  $('#commitButton').disabled = remaining > 0;
+  $('#commitButton').textContent = remaining ? `Match ${remaining} more product${remaining === 1 ? '' : 's'}` : `Confirm and commit ${workflow.items.length} product${workflow.items.length === 1 ? '' : 's'}`;
 }
 
 async function analyzeCapture() {
@@ -223,29 +299,37 @@ async function analyzeCapture() {
       body: JSON.stringify({ action: 'extract_source', imageData, pageUrl: pendingCapture.pageUrl }),
     });
     workflow = {
-      sessionId: result.sessionId, source: result.source, amazon: null,
-      sourcePageUrl: pendingCapture.pageUrl, amazonPageUrl: '',
+      sessionId: result.sessionId,
+      source: result.source,
+      items: result.source.items.map((sourceItem) => ({ source: sourceItem, amazon: null, amazonPageUrl: '' })),
+      activeItemIndex: 0,
+      sourcePageUrl: pendingCapture.pageUrl,
     };
     await chrome.storage.local.set({ bbb_capture_workflow: workflow });
     renderReview();
     selectKind('amazon');
-    const extra = Math.max(0, (result.source.items?.length || 1) - 1);
-    setStatus(extra
-      ? `Retailer order read. This MVP will commit the first product; ${extra} additional item${extra === 1 ? '' : 's'} remain uncommitted.`
-      : 'Retailer order read. Go to its exact Amazon listing and press the shortcut again.');
+    const count = result.source.items?.length || 1;
+    setStatus(`Retailer order read with ${count} product${count === 1 ? '' : 's'}. Open the exact Amazon listing for product 1 and press the shortcut again.`);
     return;
   }
   if (!workflow.sessionId || !workflow.source) throw new Error('Capture the retailer order before the Amazon listing.');
+  saveActiveItemFields();
   setStatus('Reading the exact Amazon listing and ASIN…');
   const result = await api('/api/student?resource=capture', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'extract_amazon', sessionId: workflow.sessionId, imageData, pageUrl: pendingCapture.pageUrl }),
   });
-  workflow.amazon = result.amazon;
-  workflow.amazonPageUrl = pendingCapture.pageUrl;
+  const match = activeMatch();
+  match.amazon = result.amazon;
+  match.amazonPageUrl = pendingCapture.pageUrl;
+  const nextIndex = workflow.items.findIndex((entry) => !entry.amazon);
+  if (nextIndex >= 0) workflow.activeItemIndex = nextIndex;
   await chrome.storage.local.set({ bbb_capture_workflow: workflow });
   renderReview();
-  setStatus('Amazon listing matched. Review and edit every field before committing.');
+  const remaining = workflow.items.filter((entry) => !entry.amazon).length;
+  setStatus(remaining
+    ? `Amazon listing saved. ${remaining} product${remaining === 1 ? '' : 's'} still need an exact Amazon listing.`
+    : 'Every Amazon listing is matched. Review each product and edit every field before committing.');
 }
 
 async function googleFetch(url, options = {}) {
@@ -267,7 +351,8 @@ async function reportSheetSync(result, status, records, error = '') {
 }
 
 async function syncOrder(result, reviewed) {
-  const { connection, order, item, cardAlias } = result;
+  const { connection, order, cardAlias } = result;
+  const items = Array.isArray(result.items) && result.items.length ? result.items : [result.item].filter(Boolean);
   if (!connection) throw new Error('No Google Sheet is connected to this account.');
   const root = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(connection.spreadsheet_id)}`;
   const metadata = await googleFetch(`${root}?fields=sheets.properties(sheetId,title,gridProperties(rowCount))`);
@@ -275,44 +360,98 @@ async function syncOrder(result, reviewed) {
   const expenseSheet = metadata.sheets?.find((sheet) => sheet.properties?.title === connection.expenses_tab);
   if (!orderSheet || !expenseSheet) throw new Error('The connected workbook tabs changed. Reconnect the correct workbook.');
   const orderTab = `'${connection.order_tracking_tab.replaceAll("'", "''")}'`;
-  const marker = `[BBB:${order.id}]`;
   const notesColumn = await googleFetch(`${root}/values/${encodeURIComponent(`${orderTab}!N2:N`)}`);
-  const existingOffset = (notesColumn.values || []).findIndex((row) => String(row?.[0] || '').includes(marker));
-  const orderColumn = existingOffset >= 0 ? null : await googleFetch(`${root}/values/${encodeURIComponent(`${orderTab}!A2:A`)}`);
-  const targetRow = existingOffset >= 0 ? existingOffset + 2 : 2 + (orderColumn.values?.length || 0);
-  const requests = [];
-  const rowCount = Number(orderSheet.properties.gridProperties?.rowCount || 0);
-  if (targetRow > rowCount) requests.push({ appendDimension: { sheetId: orderSheet.properties.sheetId, dimension: 'ROWS', length: Math.max(50, targetRow - rowCount) } });
-  if (existingOffset < 0 && targetRow > 2) requests.push({
-    copyPaste: {
-      source: { sheetId: orderSheet.properties.sheetId, startRowIndex: targetRow - 2, endRowIndex: targetRow - 1, startColumnIndex: 0, endColumnIndex: 15 },
-      destination: { sheetId: orderSheet.properties.sheetId, startRowIndex: targetRow - 1, endRowIndex: targetRow, startColumnIndex: 0, endColumnIndex: 15 },
-      pasteType: 'PASTE_NORMAL', pasteOrientation: 'NORMAL',
-    },
-  });
-  if (requests.length) await googleFetch(`${root}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests }) });
-  const notes = [reviewed.notes, reviewed.sourceUrl ? `Source: ${reviewed.sourceUrl}` : '', marker].filter(Boolean).join(' · ');
-  const values = [[
-    new Date(order.ordered_at).toLocaleDateString('en-US'), order.source_retailer, item.product_title,
-    'NOT ADDED', item.asin, order.retailer_order_number || '', order.receiving_location || 'House',
-    'Unshipped', '', item.is_bundle ? 'Y' : 'N', Number(order.total), Number(item.quantity),
-    `=K${targetRow}/L${targetRow}`, notes, 'N',
-  ]];
-  await googleFetch(`${root}/values/${encodeURIComponent(`${orderTab}!A${targetRow}:O${targetRow}`)}?valueInputOption=USER_ENTERED`, {
-    method: 'PUT', body: JSON.stringify({ range: `${orderTab}!A${targetRow}:O${targetRow}`, majorDimension: 'ROWS', values }),
-  });
-  const expensesRow = targetRow + 3;
+  const noteRows = notesColumn.values || [];
+  const orderColumn = await googleFetch(`${root}/values/${encodeURIComponent(`${orderTab}!A2:A`)}`);
+  let nextRow = 2 + (orderColumn.values?.length || 0);
+  let rowCount = Number(orderSheet.properties.gridProperties?.rowCount || 0);
   const expensesTab = `'${connection.expenses_tab.replaceAll("'", "''")}'`;
-  await googleFetch(`${root}/values/${encodeURIComponent(`${expensesTab}!E${expensesRow}`)}?valueInputOption=USER_ENTERED`, {
-    method: 'PUT', body: JSON.stringify({ range: `${expensesTab}!E${expensesRow}`, majorDimension: 'ROWS', values: [[cardAlias?.label || 'Other']] }),
+  const records = [];
+  const targetRows = [];
+  const rawLineTotals = items.map((item, index) => {
+    const reviewedItem = reviewed.items?.find((candidate) => candidate.asin === item.asin) || reviewed.items?.[index] || reviewed;
+    const value = Number(item.line_total ?? reviewedItem.lineTotal ?? (Number(item.unit_cost) * Number(item.quantity)));
+    return Number.isFinite(value) ? value : 0;
   });
-  const records = [{ targetTab: 'Order Tracking', targetRow }, { targetTab: 'Automated Order Expenses', targetRow: expensesRow }];
+  const rawTotal = rawLineTotals.reduce((sum, value) => sum + value, 0);
+  const orderTotal = Number(order.total);
+  let allocatedSoFar = 0;
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const reviewedItem = reviewed.items?.find((candidate) => candidate.asin === item.asin) || reviewed.items?.[index] || reviewed;
+    const marker = `[BBB:${order.id}:${item.id}]`;
+    let existingOffset = noteRows.findIndex((row) => String(row?.[0] || '').includes(marker));
+    if (existingOffset < 0 && index === 0) {
+      existingOffset = noteRows.findIndex((row) => String(row?.[0] || '').includes(`[BBB:${order.id}]`));
+    }
+    const targetRow = existingOffset >= 0 ? existingOffset + 2 : nextRow++;
+    if (targetRow > rowCount) {
+      const length = Math.max(50, targetRow - rowCount);
+      await googleFetch(`${root}:batchUpdate`, {
+        method: 'POST',
+        body: JSON.stringify({ requests: [{ appendDimension: { sheetId: orderSheet.properties.sheetId, dimension: 'ROWS', length } }] }),
+      });
+      rowCount += length;
+    }
+    if (existingOffset < 0 && targetRow > 2) {
+      await googleFetch(`${root}:batchUpdate`, {
+        method: 'POST',
+        body: JSON.stringify({ requests: [{ copyPaste: {
+          source: { sheetId: orderSheet.properties.sheetId, startRowIndex: targetRow - 2, endRowIndex: targetRow - 1, startColumnIndex: 0, endColumnIndex: 15 },
+          destination: { sheetId: orderSheet.properties.sheetId, startRowIndex: targetRow - 1, endRowIndex: targetRow, startColumnIndex: 0, endColumnIndex: 15 },
+          pasteType: 'PASTE_NORMAL', pasteOrientation: 'NORMAL',
+        } }] }),
+      });
+    }
+    let lineTotal = rawLineTotals[index];
+    if (Number.isFinite(orderTotal) && items.length === 1) lineTotal = orderTotal;
+    else if (Number.isFinite(orderTotal) && rawTotal > 0) {
+      lineTotal = index === items.length - 1
+        ? Math.round((orderTotal - allocatedSoFar) * 100) / 100
+        : Math.round((orderTotal * rawLineTotals[index] / rawTotal) * 100) / 100;
+      allocatedSoFar += lineTotal;
+    }
+    const notes = [reviewed.notes, reviewed.sourceUrl ? `Source: ${reviewed.sourceUrl}` : '', marker].filter(Boolean).join(' · ');
+    const values = [[
+      new Date(order.ordered_at).toLocaleDateString('en-US'), order.source_retailer, item.product_title,
+      'NOT ADDED', item.asin, order.retailer_order_number || '', order.receiving_location || 'House',
+      'Unshipped', '', item.is_bundle ? 'Y' : 'N', Number.isFinite(lineTotal) ? lineTotal : 0, Number(item.quantity),
+      `=K${targetRow}/L${targetRow}`, notes, 'N',
+    ]];
+    await googleFetch(`${root}/values/${encodeURIComponent(`${orderTab}!A${targetRow}:O${targetRow}`)}?valueInputOption=USER_ENTERED`, {
+      method: 'PUT', body: JSON.stringify({ range: `${orderTab}!A${targetRow}:O${targetRow}`, majorDimension: 'ROWS', values }),
+    });
+    noteRows[targetRow - 2] = [notes];
+    const expensesRow = targetRow + 3;
+    await googleFetch(`${root}/values/${encodeURIComponent(`${expensesTab}!E${expensesRow}`)}?valueInputOption=USER_ENTERED`, {
+      method: 'PUT', body: JSON.stringify({ range: `${expensesTab}!E${expensesRow}`, majorDimension: 'ROWS', values: [[cardAlias?.label || 'Other']] }),
+    });
+    targetRows.push(targetRow);
+    records.push(
+      { itemId: item.id, targetTab: 'Order Tracking', targetRow },
+      { itemId: item.id, targetTab: 'Automated Order Expenses', targetRow: expensesRow },
+    );
+  }
   await reportSheetSync(result, 'synced', records);
-  return targetRow;
+  return targetRows;
 }
 
 function reviewedPayload() {
-  const item = workflow.source?.items?.[0] || {};
+  saveActiveItemFields();
+  const items = workflow.items.map((match) => ({
+    productTitle: match.source?.productTitle,
+    quantity: Number(match.source?.quantity),
+    unitCost: match.source?.unitCost,
+    lineTotal: match.source?.lineTotal,
+    retailerSku: match.source?.retailerSku,
+    variant: match.source?.variant || match.amazon?.variant,
+    isBundle: match.source?.isBundle === true,
+    asin: match.amazon?.asin,
+    amazonTitle: match.amazon?.amazonTitle,
+    amazonUrl: match.amazonPageUrl || match.amazon?.amazonUrl,
+    extractionConfidence: Math.min(workflow.source?.confidence || 0, match.amazon?.confidence || 0),
+  }));
+  const item = items[0] || {};
   return {
     action: 'confirm', sessionId: workflow.sessionId,
     retailer: $('#retailerInput').value, orderNumber: $('#orderNumberInput').value,
@@ -323,11 +462,12 @@ function reviewedPayload() {
     shipping: $('#shippingInput').value, discount: $('#discountInput').value,
     cardIssuer: $('#cardIssuerInput').value, cardLastFour: $('#cardLastFourInput').value,
     asin: $('#asinInput').value, amazonTitle: $('#amazonTitleInput').value,
-    amazonUrl: workflow.amazonPageUrl || workflow.amazon?.amazonUrl,
+    amazonUrl: item.amazonUrl,
     sourceUrl: workflow.sourcePageUrl || workflow.source?.sourceUrl,
-    retailerSku: item.retailerSku, variant: item.variant || workflow.amazon?.variant,
-    lineTotal: item.lineTotal, isBundle: $('#bundleInput').value === 'true',
-    extractionConfidence: Math.min(workflow.source?.confidence || 0, workflow.amazon?.confidence || 0),
+    retailerSku: item.retailerSku, variant: item.variant,
+    lineTotal: item.lineTotal, isBundle: item.isBundle,
+    extractionConfidence: item.extractionConfidence,
+    items,
     notes: $('#notesInput').value,
   };
 }
@@ -339,11 +479,11 @@ async function commitOrder(event) {
   if (pendingSheetSync) {
     try {
       setStatus('Retrying Google Sheet sync…');
-      const row = await syncOrder(pendingSheetSync.result, pendingSheetSync.reviewed);
+      const rows = await syncOrder(pendingSheetSync.result, pendingSheetSync.reviewed);
       pendingSheetSync = null;
       await chrome.storage.local.remove('bbb_pending_sheet_sync');
       button.textContent = 'Saved';
-      setStatus(`Order committed and synced to Order Tracking row ${row}.`);
+      setStatus(`Order committed and synced to Order Tracking row${rows.length === 1 ? '' : 's'} ${rows.join(', ')}.`);
     } catch (error) { setStatus(`Order is safe in Supabase, but Sheet sync still needs attention: ${error.message}`, true); button.disabled = false; }
     return;
   }
@@ -355,10 +495,10 @@ async function commitOrder(event) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reviewed),
     });
     setStatus('Order saved. Syncing the reviewed row to Google Sheets…');
-    const row = await syncOrder(result, reviewed);
+    const rows = await syncOrder(result, reviewed);
     button.textContent = 'Saved';
-    setStatus(`Order committed and synced to Order Tracking row ${row}.`);
-    workflow = { sessionId: '', source: null, amazon: null, sourcePageUrl: '', amazonPageUrl: '' };
+    setStatus(`Order committed and synced to Order Tracking row${rows.length === 1 ? '' : 's'} ${rows.join(', ')}.`);
+    workflow = { sessionId: '', source: null, items: [], activeItemIndex: 0, sourcePageUrl: '' };
     await chrome.storage.local.remove(['bbb_capture_workflow', 'bbb_pending_capture']);
   } catch (error) {
     if (result?.connection) {
@@ -377,7 +517,7 @@ async function commitOrder(event) {
 }
 
 async function resetWorkflow() {
-  workflow = { sessionId: '', source: null, amazon: null, sourcePageUrl: '', amazonPageUrl: '' };
+  workflow = { sessionId: '', source: null, items: [], activeItemIndex: 0, sourcePageUrl: '' };
   pendingCapture = null;
   pendingSheetSync = null;
   await chrome.storage.local.remove(['bbb_capture_workflow', 'bbb_pending_capture', 'bbb_pending_sheet_sync', 'bbb_capture_error']);
@@ -393,7 +533,7 @@ async function loadState() {
   ]);
   authSession = stored.bbb_extension_session || null;
   pendingCapture = stored.bbb_pending_capture || null;
-  workflow = stored.bbb_capture_workflow || workflow;
+  workflow = normalizeWorkflow(stored.bbb_capture_workflow || workflow);
   pendingSheetSync = stored.bbb_pending_sheet_sync || null;
   if (stored.bbb_capture_error) {
     setStatus(stored.bbb_capture_error, true);
@@ -432,6 +572,13 @@ $('#analyzeButton').addEventListener('click', async () => {
   finally { $('#analyzeButton').disabled = !pendingCapture; }
 });
 document.querySelectorAll('input[name="captureKind"]').forEach((radio) => radio.addEventListener('change', () => selectKind(selectedKind())));
+$('#itemSelector').addEventListener('change', async () => {
+  saveActiveItemFields();
+  workflow.activeItemIndex = Number($('#itemSelector').value) || 0;
+  await chrome.storage.local.set({ bbb_capture_workflow: workflow });
+  renderReview();
+  selectKind('amazon');
+});
 $('#reviewForm').addEventListener('submit', commitOrder);
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type !== 'capture-ready') return;
