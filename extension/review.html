@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Buy Box Bandit Order Capture</title>
+  <link rel="stylesheet" href="review.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark">B</div>
+    <div><strong>The Buy Box Bandit</strong><span>Order Capture · Seller Syndicate</span></div>
+    <button class="quiet-button" id="resetButton" type="button">Start over</button>
+  </header>
+  <main class="layout">
+    <section class="capture-preview panel">
+      <div class="section-heading"><div><span class="eyebrow">Current capture</span><h1 id="captureTitle">No screenshot yet</h1></div><span class="pill" id="captureTypePill">Waiting</span></div>
+      <div class="empty-preview" id="emptyPreview"><b>⌘⇧Y</b><span>Press the shortcut on a retailer order page</span></div>
+      <img class="hidden" id="capturePreview" alt="Captured browser tab">
+      <div class="page-meta"><strong id="pageTitle">—</strong><span id="pageUrl">—</span></div>
+      <div class="privacy-note"><strong>Before analyzing:</strong> make sure no full card number, CVV, password, address, email, or phone number is visible.</div>
+    </section>
+
+    <section class="workflow panel">
+      <section id="signInView">
+        <span class="eyebrow">Private workspace</span>
+        <h2>Sign in to capture orders</h2>
+        <p>The extension uses your existing Seller Syndicate Google account and only accesses the Google Sheet you selected.</p>
+        <button class="primary-button full" id="signInButton" type="button">Continue with Google</button>
+        <details><summary>Supabase redirect URL</summary><div class="copy-row"><code id="redirectUrl">Loading…</code><button class="quiet-button" id="copyRedirectButton" type="button">Copy</button></div><small>Add this URL to Supabase → Authentication → URL Configuration → Redirect URLs once.</small></details>
+      </section>
+
+      <section class="hidden" id="captureView">
+        <div class="signed-in-row"><span id="signedInLabel">Signed in</span><button class="text-button" id="signOutButton" type="button">Sign out</button></div>
+        <div class="stage-selector">
+          <label><input type="radio" name="captureKind" value="source" checked><span><b>1</b> Retailer order</span></label>
+          <label><input type="radio" name="captureKind" value="amazon"><span><b>2</b> Amazon listing</span></label>
+        </div>
+        <button class="primary-button full" id="analyzeButton" type="button" disabled>Analyze screenshot</button>
+        <p class="status-message" id="statusMessage"></p>
+
+        <form class="review-form hidden" id="reviewForm">
+          <div class="review-title"><div><span class="eyebrow">Review before committing</span><h2>Confirmed order fields</h2></div><span id="confidenceLabel">—</span></div>
+          <div class="field-grid">
+            <label>Retailer<input id="retailerInput" required></label>
+            <label>Order number<input id="orderNumberInput"></label>
+            <label>Order date<input id="orderedAtInput" type="datetime-local" required></label>
+            <label>Receiving location<select id="locationInput"><option>House</option><option>PREP CENTER A</option><option>PREP CENTER B</option></select></label>
+            <label class="span-2">Product title<input id="productTitleInput" required></label>
+            <label>Quantity<input id="quantityInput" type="number" min="0.01" step="0.01" required></label>
+            <label>Total paid<input id="totalInput" type="number" min="0" step="0.01" required></label>
+            <label>Unit cost<input id="unitCostInput" type="number" min="0" step="0.01"></label>
+            <label>Subtotal<input id="subtotalInput" type="number" min="0" step="0.01"></label>
+            <label>Tax<input id="taxInput" type="number" min="0" step="0.01"></label>
+            <label>Shipping<input id="shippingInput" type="number" min="0" step="0.01"></label>
+            <label>Discount<input id="discountInput" type="number" min="0" step="0.01"></label>
+            <label>Card name<input id="cardIssuerInput" placeholder="Chase Ink"></label>
+            <label>Card last four<input id="cardLastFourInput" inputmode="numeric" pattern="[0-9]{4}" maxlength="4"></label>
+            <label>ASIN<input id="asinInput" pattern="B[A-Za-z0-9]{9}" maxlength="10" required></label>
+            <label>Bundle<select id="bundleInput"><option value="false">No</option><option value="true">Yes</option></select></label>
+            <label class="span-2">Amazon title<input id="amazonTitleInput"></label>
+            <label class="span-2">Notes<textarea id="notesInput" rows="2"></textarea></label>
+          </div>
+          <div class="commit-warning">Nothing is written until you click the button below.</div>
+          <button class="primary-button full" id="commitButton" type="submit">Confirm and commit order</button>
+        </form>
+      </section>
+    </section>
+  </main>
+  <script type="module" src="review.js"></script>
+</body>
+</html>

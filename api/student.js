@@ -17,6 +17,16 @@ const supabaseHeaders = (token) => ({
   'Content-Type': 'application/json',
 });
 
+const allowExtensionOrigin = (request, response) => {
+  const origin = String(request.headers.origin || '');
+  if (!/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) return false;
+  response.setHeader('Access-Control-Allow-Origin', origin);
+  response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  response.setHeader('Vary', 'Origin');
+  return true;
+};
+
 async function organizationForUser(identity, token) {
   const response = await fetch(
     `${config.supabaseUrl}/rest/v1/organization_members?select=organization_id,role&user_id=eq.${encodeURIComponent(identity.userId)}&order=created_at.asc&limit=1`,
@@ -341,6 +351,8 @@ async function handleSheetConnection(request, response, identity) {
 }
 
 export default async function handler(request, response) {
+  allowExtensionOrigin(request, response);
+  if (request.method === 'OPTIONS') return response.status(204).end();
   const identity = await readPortalIdentity(request);
   if (!identity) return jsonResponse(response, 401, { error: 'Please sign in' });
   try {

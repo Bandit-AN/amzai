@@ -151,7 +151,22 @@ The member portal's **Connect Google Sheet** button requests the narrow `drive.f
 
 The portal also provides a reviewed two-screenshot purchase capture. The retailer screenshot extracts supplier, order number, product, quantity, totals, and only the payment-card alias/last four digits; the Amazon screenshot establishes the ASIN and exact listing title. Browser-side compression keeps each image below the function payload limit, and screenshots are sent to Gemini for extraction but are not persisted. The member must review and confirm every field before the order becomes `ordered` in Supabase. The confirmed row is then written to `Order Tracking` A:O while preserving the prior row's formatting, dropdowns, and `PRICE PER` formula; the card alias is written to the corresponding `Automated Order Expenses` row. Failed Sheet writes leave the authoritative Supabase order intact and mark its sync record failed.
 
-Never upload a screenshot containing a full card number, CVV, account password, home address, phone number, or email. The extractor is instructed to reject screenshots that appear to contain sensitive payment data. This capture interface is the portal MVP; a browser extension and macOS global keyboard shortcut are separate packaging phases built on the same capture API.
+Never upload a screenshot containing a full card number, CVV, account password, home address, phone number, or email. The extractor is instructed to reject screenshots that appear to contain sensitive payment data.
+
+### Browser extension order capture
+
+The unpacked Chrome/Edge extension in [`extension`](extension) adds a `Command+Shift+Y` shortcut on macOS (`Ctrl+Shift+Y` elsewhere). It captures the visible browser tab, opens an isolated review page, and makes no database or spreadsheet change until the member reviews every field and clicks **Confirm and commit order**. Use it in two stages: capture the retailer order, then capture the exact Amazon listing. The first version commits one product line per capture workflow.
+
+Install it once in Chrome:
+
+1. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select this repository's `extension` directory.
+2. Pin **The Buy Box Bandit — Order Capture**, click it once, and copy the Supabase redirect URL shown on the sign-in card. It has the form `https://<extension-id>.chromiumapp.org/supabase`.
+3. In Supabase, open **Authentication → URL Configuration** and add that exact URL to **Redirect URLs**. Do not replace the existing portal URLs.
+4. Return to the extension page and click **Continue with Google**. The same authorized Seller Syndicate Google account and connected workbook are used.
+5. Open a retailer order page, hide all sensitive personal/payment information, and press `Command+Shift+Y`. Review the screenshot and click **Analyze screenshot**.
+6. Open the exact Amazon detail page and press `Command+Shift+Y` again. Analyze it, edit every extracted field, and commit only after the ASIN, units, total, and card alias are correct.
+
+The shortcut can be changed at `chrome://extensions/shortcuts`. Chrome does not permit captures on protected pages such as `chrome://` settings or the Chrome Web Store. Keep the extension loaded from the same directory so its unpacked extension ID—and therefore its Supabase redirect URL—remains stable. A future Chrome Web Store package will use its published extension ID instead.
 
 ## Run locally
 

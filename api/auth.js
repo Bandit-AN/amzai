@@ -16,7 +16,19 @@ const sessionCookie = (value, maxAge) => [
   `Max-Age=${maxAge}`,
 ].join('; ');
 
+const allowExtensionOrigin = (request, response) => {
+  const origin = String(request.headers.origin || '');
+  if (!/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) return false;
+  response.setHeader('Access-Control-Allow-Origin', origin);
+  response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  response.setHeader('Vary', 'Origin');
+  return true;
+};
+
 export default async function handler(request, response) {
+  allowExtensionOrigin(request, response);
+  if (request.method === 'OPTIONS') return response.status(204).end();
   if (request.method === 'GET') {
     return jsonResponse(response, 200, {
       supabase: config.supabaseUrl && config.supabaseAnonKey
