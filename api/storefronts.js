@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+import { handleOrderTrackingCron } from '../lib/order-tracking.js';
+
 import {
   bestWalmartMatchForAmazonProduct,
   config,
@@ -185,6 +187,7 @@ async function findWalmartMatch(product) {
 }
 
 export default async function handler(request, response) {
+  if (request.query?.task === 'orders') return handleOrderTrackingCron(request, response);
   if (!['GET', 'POST', 'DELETE'].includes(request.method)) return jsonResponse(response, 405, { error: 'Method not allowed' });
   const portalIdentity = await readPortalIdentity(request);
   if (portalIdentity) {

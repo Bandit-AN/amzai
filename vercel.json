@@ -10,7 +10,7 @@
       "schedule": "0 19 * * *"
     },
     {
-      "path": "/api/order-tracking",
+      "path": "/api/storefronts?task=orders",
       "schedule": "0 16 * * *"
     }
   ],
@@ -25,7 +25,6 @@
     "api/finalize.js": { "maxDuration": 30 },
     "api/status.js": { "maxDuration": 10 },
     "api/student.js": { "maxDuration": 60 },
-    "api/order-tracking.js": { "maxDuration": 60 },
     "api/storefronts.js": { "maxDuration": 120 },
     "api/worker.js": { "maxDuration": 30 }
   }
