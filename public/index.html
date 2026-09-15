@@ -81,6 +81,57 @@
           </form>
         </article>
       </section>
+      <section class="panel capture-panel">
+        <div class="panel-heading">
+          <div><span class="eyebrow">Order capture</span><h2>Log a purchase from two screenshots</h2></div>
+          <span class="connection-badge" id="captureStatusBadge">Ready</span>
+        </div>
+        <p class="storefront-intro">Upload the retailer order first, then the matching Amazon listing. Buy Box Bandit extracts the details, but nothing enters your ledger or Google Sheet until you review and confirm it.</p>
+        <div class="privacy-note"><strong>Payment safety:</strong> only show the card name and last four digits. Crop or cover any full card number, security code, address, phone number, or email.</div>
+        <div class="capture-steps">
+          <form class="capture-step" id="sourceCaptureForm">
+            <span class="capture-step-number">1</span>
+            <div><strong>Retailer order</strong><small>Order confirmation or checkout screenshot</small></div>
+            <label class="file-button">Choose screenshot<input id="sourceScreenshotInput" type="file" accept="image/png,image/jpeg,image/webp" required></label>
+            <input id="sourcePageUrlInput" type="url" placeholder="Retailer page URL (optional)">
+            <button class="primary-button" type="submit">Read order</button>
+            <small class="capture-file-name" id="sourceFileName">No screenshot selected</small>
+          </form>
+          <form class="capture-step capture-step-locked" id="amazonCaptureForm">
+            <span class="capture-step-number">2</span>
+            <div><strong>Amazon listing</strong><small>Product page with exact variant or ASIN</small></div>
+            <label class="file-button">Choose screenshot<input id="amazonScreenshotInput" type="file" accept="image/png,image/jpeg,image/webp" required disabled></label>
+            <input id="amazonPageUrlInput" type="url" placeholder="Amazon product URL (recommended)" disabled>
+            <button class="primary-button" type="submit" disabled>Match ASIN</button>
+            <small class="capture-file-name" id="amazonFileName">Complete step 1 first</small>
+          </form>
+        </div>
+        <p class="form-error" id="captureMessage" role="status"></p>
+        <form class="capture-review hidden" id="orderReviewForm">
+          <div class="capture-review-heading"><div><span class="eyebrow">Final review</span><h3>Confirm every field</h3></div><span id="captureConfidence">—</span></div>
+          <div class="capture-review-grid">
+            <label>Retailer<input id="captureRetailer" required></label>
+            <label>Order number<input id="captureOrderNumber"></label>
+            <label>Order date<input id="captureOrderedAt" type="datetime-local" required></label>
+            <label>Receiving location<select id="captureLocation"><option>House</option><option>PREP CENTER A</option><option>PREP CENTER B</option></select></label>
+            <label class="wide-field">Product title<input id="captureProductTitle" required></label>
+            <label>Quantity<input id="captureQuantity" type="number" min="0.01" step="0.01" required></label>
+            <label>Total paid<input id="captureTotal" type="number" min="0" step="0.01" required></label>
+            <label>Unit cost<input id="captureUnitCost" type="number" min="0" step="0.01"></label>
+            <label>Subtotal<input id="captureSubtotal" type="number" min="0" step="0.01"></label>
+            <label>Tax<input id="captureTax" type="number" min="0" step="0.01"></label>
+            <label>Shipping<input id="captureShipping" type="number" min="0" step="0.01"></label>
+            <label>Discount<input id="captureDiscount" type="number" min="0" step="0.01"></label>
+            <label>Card name/issuer<input id="captureCardIssuer" placeholder="Chase Ink"></label>
+            <label>Card last four<input id="captureCardLastFour" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="1234"></label>
+            <label>ASIN<input id="captureAsin" pattern="B[A-Za-z0-9]{9}" maxlength="10" required></label>
+            <label>Bundle?<select id="captureBundle"><option value="false">No</option><option value="true">Yes</option></select></label>
+            <label class="wide-field">Amazon title<input id="captureAmazonTitle"></label>
+            <label class="wide-field">Notes<textarea id="captureNotes" rows="2" placeholder="Optional notes"></textarea></label>
+          </div>
+          <button class="primary-button full-button" id="confirmCaptureButton" type="submit" disabled>Confirm and save order</button>
+        </form>
+      </section>
       <section class="panel sheet-panel">
         <div class="panel-heading">
           <div><span class="eyebrow">Order operations</span><h2>Google Sheet connection</h2></div>

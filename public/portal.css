@@ -163,6 +163,28 @@
 .login-divider::before, .login-divider::after { content: ""; height: 1px; background: var(--line); flex: 1; }
 .storefront-panel { margin-top: 14px; }
 .sheet-panel { margin-top: 14px; }
+.capture-panel { margin-top: 14px; }
+.privacy-note { margin-top: 16px; padding: 12px 14px; border: 1px solid rgba(212, 145, 40, 0.28); border-radius: 10px; background: rgba(255, 173, 89, 0.08); color: #65533d; font-size: 12px; line-height: 1.55; }
+.capture-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+.capture-step { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: center; padding: 17px; border: 1px solid var(--line); border-radius: 12px; background: #faf9f7; }
+.capture-step-number { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #171717; color: #fff; font-weight: 800; }
+.capture-step strong, .capture-step small { display: block; }
+.capture-step small { color: var(--muted); margin-top: 3px; }
+.capture-step > input, .capture-review input, .capture-review select, .capture-review textarea { width: 100%; min-width: 0; border: 1px solid #d9d4cc; border-radius: 9px; background: #fff; color: #171717; padding: 11px 12px; outline: none; }
+.capture-step > input, .capture-step > button, .capture-file-name { grid-column: 1 / -1; }
+.file-button { grid-column: 1 / -1; display: block; padding: 13px; border: 1px dashed #b8afa4; border-radius: 9px; background: #fff; color: #4a443d; text-align: center; cursor: pointer; font-size: 13px; font-weight: 700; }
+.file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.capture-step-locked { opacity: 0.55; }
+.capture-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.capture-review { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.capture-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+.capture-review-heading h3 { margin: 5px 0 0; font: 700 20px "Manrope", "DM Sans", sans-serif; }
+.capture-review-heading > span { color: var(--muted); font-size: 12px; }
+.capture-review-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.capture-review-grid label { display: grid; gap: 7px; color: #55514b; font-size: 12px; }
+.capture-review-grid .wide-field { grid-column: span 2; }
+.capture-review textarea { resize: vertical; }
+.capture-review input:focus, .capture-review select:focus, .capture-review textarea:focus, .capture-step > input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(255, 157, 63, 0.1); }
 .connection-badge { color: var(--muted); font-size: 12px; font-weight: 700; }
 .connection-badge.ready { color: var(--green); }
 .sheet-connection-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 11px; background: rgba(8, 17, 31, 0.5); }
@@ -185,6 +207,8 @@
   }
   .storefront-form { grid-template-columns: 1fr; }
   .storefront-form .primary-button { width: 100%; }
+  .capture-steps { grid-template-columns: 1fr; }
+  .capture-review-grid { grid-template-columns: 1fr 1fr; }
   .sheet-connection-row { align-items: stretch; flex-direction: column; }
   .sheet-connection-row .primary-button { width: 100%; }
 }
@@ -192,6 +216,8 @@
   .two-fields {
     grid-template-columns: 1fr;
   }
+  .capture-review-grid { grid-template-columns: 1fr; }
+  .capture-review-grid .wide-field { grid-column: auto; }
   .login-tabs {
     margin-top: 24px;
   }

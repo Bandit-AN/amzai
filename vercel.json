@@ -20,7 +20,7 @@
     "api/analyze.js": { "maxDuration": 60 },
     "api/finalize.js": { "maxDuration": 30 },
     "api/status.js": { "maxDuration": 10 },
-    "api/student.js": { "maxDuration": 10 },
+    "api/student.js": { "maxDuration": 60 },
     "api/storefronts.js": { "maxDuration": 120 },
     "api/worker.js": { "maxDuration": 30 }
   }

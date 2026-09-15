@@ -17,6 +17,9 @@ let supabaseAccessToken = '';
 let googleProviderToken = '';
 let portalConfig = {};
 let sheetConnection = null;
+let captureSessionId = '';
+let captureDraft = { source: null, amazon: null };
+let pendingSheetSync = null;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
 })[character]);
@@ -306,6 +309,265 @@ async function openGoogleSheetPicker() {
     .build();
   picker.setVisible(true);
 }
+
+const setCaptureMessage = (message, busy = false) => {
+  $('#captureMessage').textContent = message;
+  $('#captureStatusBadge').textContent = busy ? 'Working…' : 'Ready';
+};
+
+const fileToCompressedDataUrl = async (file) => {
+  if (!file || !/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error('Choose a PNG, JPEG, or WebP screenshot.');
+  if (file.size > 15_000_000) throw new Error('Screenshot is too large. Crop it and try again.');
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  let result = canvas.toDataURL('image/jpeg', 0.78);
+  if (result.length > 3_200_000) result = canvas.toDataURL('image/jpeg', 0.58);
+  if (result.length > 3_400_000) throw new Error('Screenshot is still too large. Crop it closer to the order details.');
+  return result;
+};
+
+const localDateTimeValue = (value) => {
+  const date = new Date(value || Date.now());
+  const safe = Number.isNaN(date.getTime()) ? new Date() : date;
+  const local = new Date(safe.getTime() - safe.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+};
+
+const setCaptureNumber = (selector, value) => {
+  $(selector).value = Number.isFinite(Number(value)) ? Number(value) : '';
+};
+
+function renderSourceCapture(source) {
+  const item = source.items?.[0] || {};
+  $('#orderReviewForm').classList.remove('hidden');
+  $('#captureRetailer').value = source.retailer || '';
+  $('#captureOrderNumber').value = source.orderNumber || '';
+  $('#captureOrderedAt').value = localDateTimeValue(source.orderedAt);
+  $('#captureProductTitle').value = item.productTitle || '';
+  $('#captureQuantity').value = item.quantity || 1;
+  setCaptureNumber('#captureTotal', source.total ?? item.lineTotal);
+  setCaptureNumber('#captureUnitCost', item.unitCost);
+  setCaptureNumber('#captureSubtotal', source.subtotal);
+  setCaptureNumber('#captureTax', source.tax);
+  setCaptureNumber('#captureShipping', source.shipping);
+  setCaptureNumber('#captureDiscount', source.discount);
+  $('#captureCardIssuer').value = source.cardIssuer || '';
+  $('#captureCardLastFour').value = source.cardLastFour || '';
+  $('#captureBundle').value = item.isBundle ? 'true' : 'false';
+  $('#captureConfidence').textContent = `${Math.round((source.confidence || 0) * 100)}% source confidence`;
+}
+
+function unlockAmazonCapture() {
+  $('#amazonCaptureForm').classList.remove('capture-step-locked');
+  $('#amazonCaptureForm').querySelectorAll('input,button').forEach((element) => { element.disabled = false; });
+  $('#amazonFileName').textContent = 'No screenshot selected';
+}
+
+const googleSheetsFetch = async (url, options = {}) => {
+  if (!googleProviderToken) throw new Error('Reconnect Google Sheet access before syncing.');
+  const response = await fetch(url, {
+    ...options,
+    headers: { Authorization: `Bearer ${googleProviderToken}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error?.message || `Google Sheets request failed (${response.status})`);
+  return data;
+};
+
+async function reportSheetSync(result, status, records, error = '') {
+  return studentApi('/api/student?resource=capture', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'sync_status', status, orderId: result.order.id,
+      connectionId: result.connection.id, records, error,
+    }),
+  });
+}
+
+async function syncConfirmedOrderToSheet(result, reviewed) {
+  const { connection, order, item, cardAlias } = result;
+  if (!connection) throw new Error('Order saved, but no Google Sheet is connected.');
+  const spreadsheetId = connection.spreadsheet_id;
+  const apiRoot = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}`;
+  const metadata = await googleSheetsFetch(`${apiRoot}?fields=sheets.properties(sheetId,title,gridProperties(rowCount))`);
+  const orderSheet = metadata.sheets?.find((sheet) => sheet.properties?.title === connection.order_tracking_tab);
+  const expensesSheet = metadata.sheets?.find((sheet) => sheet.properties?.title === connection.expenses_tab);
+  if (!orderSheet || !expensesSheet) throw new Error('The connected workbook tabs changed. Reconnect the correct sheet.');
+  const orderTab = `'${connection.order_tracking_tab.replaceAll("'", "''")}'`;
+  const syncMarker = `[BBB:${order.id}]`;
+  const notesColumn = await googleSheetsFetch(`${apiRoot}/values/${encodeURIComponent(`${orderTab}!N2:N`)}`);
+  const existingOffset = (notesColumn.values || []).findIndex((row) => String(row?.[0] || '').includes(syncMarker));
+  const orderColumn = existingOffset >= 0
+    ? null
+    : await googleSheetsFetch(`${apiRoot}/values/${encodeURIComponent(`${orderTab}!A2:A`)}`);
+  const targetRow = existingOffset >= 0 ? existingOffset + 2 : 2 + (orderColumn.values?.length || 0);
+  const rowCount = Number(orderSheet.properties.gridProperties?.rowCount || 0);
+  const requests = [];
+  if (targetRow > rowCount) {
+    requests.push({ appendDimension: { sheetId: orderSheet.properties.sheetId, dimension: 'ROWS', length: Math.max(50, targetRow - rowCount) } });
+  }
+  if (existingOffset < 0 && targetRow > 2) {
+    requests.push({
+      copyPaste: {
+        source: { sheetId: orderSheet.properties.sheetId, startRowIndex: targetRow - 2, endRowIndex: targetRow - 1, startColumnIndex: 0, endColumnIndex: 15 },
+        destination: { sheetId: orderSheet.properties.sheetId, startRowIndex: targetRow - 1, endRowIndex: targetRow, startColumnIndex: 0, endColumnIndex: 15 },
+        pasteType: 'PASTE_NORMAL',
+        pasteOrientation: 'NORMAL',
+      },
+    });
+  }
+  if (requests.length) await googleSheetsFetch(`${apiRoot}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests }) });
+  const orderDate = new Date(order.ordered_at).toLocaleDateString('en-US');
+  const notes = [reviewed.notes, reviewed.sourceUrl ? `Source: ${reviewed.sourceUrl}` : '', syncMarker].filter(Boolean).join(' · ');
+  const rowValues = [[
+    orderDate, order.source_retailer, item.product_title, 'NOT ADDED', item.asin,
+    order.retailer_order_number || '', order.receiving_location || 'House', 'Unshipped', '',
+    item.is_bundle ? 'Y' : 'N', Number(order.total), Number(item.quantity), `=K${targetRow}/L${targetRow}`,
+    notes, 'N',
+  ]];
+  await googleSheetsFetch(`${apiRoot}/values/${encodeURIComponent(`${orderTab}!A${targetRow}:O${targetRow}`)}?valueInputOption=USER_ENTERED`, {
+    method: 'PUT', body: JSON.stringify({ range: `${orderTab}!A${targetRow}:O${targetRow}`, majorDimension: 'ROWS', values: rowValues }),
+  });
+  const expensesRow = targetRow + 3;
+  const expensesTab = `'${connection.expenses_tab.replaceAll("'", "''")}'`;
+  await googleSheetsFetch(`${apiRoot}/values/${encodeURIComponent(`${expensesTab}!E${expensesRow}`)}?valueInputOption=USER_ENTERED`, {
+    method: 'PUT', body: JSON.stringify({ range: `${expensesTab}!E${expensesRow}`, majorDimension: 'ROWS', values: [[cardAlias?.label || 'Other']] }),
+  });
+  const records = [
+    { targetTab: 'Order Tracking', targetRow },
+    { targetTab: 'Automated Order Expenses', targetRow: expensesRow },
+  ];
+  await reportSheetSync(result, 'synced', records);
+  return { targetRow, expensesRow };
+}
+
+$('#sourceScreenshotInput').addEventListener('change', (event) => {
+  $('#sourceFileName').textContent = event.target.files?.[0]?.name || 'No screenshot selected';
+});
+
+$('#amazonScreenshotInput').addEventListener('change', (event) => {
+  $('#amazonFileName').textContent = event.target.files?.[0]?.name || 'No screenshot selected';
+});
+
+$('#sourceCaptureForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  setCaptureMessage('Reading retailer, products, quantity, totals, and card alias…', true);
+  try {
+    if (!supabaseAccessToken) throw new Error('Sign in with Google to capture orders.');
+    const imageData = await fileToCompressedDataUrl($('#sourceScreenshotInput').files?.[0]);
+    const data = await studentApi('/api/student?resource=capture', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'extract_source', imageData, pageUrl: $('#sourcePageUrlInput').value }),
+    });
+    captureSessionId = data.sessionId;
+    captureDraft = { source: data.source, amazon: null };
+    pendingSheetSync = null;
+    renderSourceCapture(data.source);
+    $('#captureAsin').value = '';
+    $('#captureAmazonTitle').value = '';
+    $('#confirmCaptureButton').disabled = true;
+    $('#confirmCaptureButton').textContent = 'Confirm and save order';
+    unlockAmazonCapture();
+    const extra = Math.max(0, (data.source.items?.length || 1) - 1);
+    setCaptureMessage(extra ? `Order read. Review the first product; ${extra} additional item${extra === 1 ? '' : 's'} will be supported in the next multi-item update.` : 'Order read. Upload the matching Amazon listing next.');
+  } catch (error) { setCaptureMessage(error.message); }
+  finally { button.disabled = false; }
+});
+
+$('#amazonCaptureForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  setCaptureMessage('Reading the exact Amazon listing and ASIN…', true);
+  try {
+    if (!captureSessionId) throw new Error('Capture the retailer order first.');
+    const imageData = await fileToCompressedDataUrl($('#amazonScreenshotInput').files?.[0]);
+    const data = await studentApi('/api/student?resource=capture', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'extract_amazon', sessionId: captureSessionId, imageData, pageUrl: $('#amazonPageUrlInput').value }),
+    });
+    captureDraft.amazon = data.amazon;
+    $('#captureAsin').value = data.amazon.asin || '';
+    $('#captureAmazonTitle').value = data.amazon.amazonTitle || '';
+    $('#captureConfidence').textContent += ` · ${Math.round((data.amazon.confidence || 0) * 100)}% Amazon confidence`;
+    $('#confirmCaptureButton').disabled = false;
+    setCaptureMessage('Amazon listing matched. Review every field before confirming.');
+  } catch (error) { setCaptureMessage(error.message); }
+  finally { button.disabled = false; }
+});
+
+$('#orderReviewForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = $('#confirmCaptureButton');
+  button.disabled = true;
+  if (pendingSheetSync) {
+    setCaptureMessage('Retrying the Google Sheet sync…', true);
+    try {
+      const rows = await syncConfirmedOrderToSheet(pendingSheetSync.result, pendingSheetSync.reviewed);
+      pendingSheetSync = null;
+      button.textContent = 'Saved';
+      $('#captureStatusBadge').textContent = 'Saved';
+      $('#captureStatusBadge').classList.add('ready');
+      $('#captureMessage').textContent = `Order saved and synced to Order Tracking row ${rows.targetRow}.`;
+    } catch (error) {
+      setCaptureMessage(`Order is safe in Supabase, but Sheet sync still needs attention: ${error.message}`);
+      button.disabled = false;
+    }
+    return;
+  }
+  setCaptureMessage('Saving the confirmed order to your private ledger…', true);
+  const item = captureDraft.source?.items?.[0] || {};
+  const reviewed = {
+    action: 'confirm', sessionId: captureSessionId,
+    retailer: $('#captureRetailer').value, orderNumber: $('#captureOrderNumber').value,
+    orderedAt: $('#captureOrderedAt').value, receivingLocation: $('#captureLocation').value,
+    productTitle: $('#captureProductTitle').value, quantity: Number($('#captureQuantity').value),
+    total: Number($('#captureTotal').value), unitCost: $('#captureUnitCost').value,
+    subtotal: $('#captureSubtotal').value, tax: $('#captureTax').value,
+    shipping: $('#captureShipping').value, discount: $('#captureDiscount').value,
+    cardIssuer: $('#captureCardIssuer').value, cardLastFour: $('#captureCardLastFour').value,
+    asin: $('#captureAsin').value, amazonTitle: $('#captureAmazonTitle').value,
+    amazonUrl: $('#amazonPageUrlInput').value || captureDraft.amazon?.amazonUrl,
+    sourceUrl: $('#sourcePageUrlInput').value || captureDraft.source?.sourceUrl,
+    retailerSku: item.retailerSku, variant: item.variant || captureDraft.amazon?.variant,
+    lineTotal: item.lineTotal, isBundle: $('#captureBundle').value === 'true',
+    extractionConfidence: Math.min(captureDraft.source?.confidence || 0, captureDraft.amazon?.confidence || 0),
+    notes: $('#captureNotes').value,
+  };
+  let result;
+  try {
+    result = await studentApi('/api/student?resource=capture', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reviewed),
+    });
+    setCaptureMessage('Order saved. Syncing it into your connected workbook…', true);
+    const rows = await syncConfirmedOrderToSheet(result, reviewed);
+    pendingSheetSync = null;
+    button.textContent = 'Saved';
+    $('#captureStatusBadge').textContent = 'Saved';
+    $('#captureStatusBadge').classList.add('ready');
+    $('#captureMessage').textContent = `Order saved and synced to Order Tracking row ${rows.targetRow}.`;
+  } catch (error) {
+    if (result?.connection) {
+      await reportSheetSync(result, 'failed', [
+        { targetTab: 'Order Tracking' }, { targetTab: 'Automated Order Expenses' },
+      ], error.message).catch(() => {});
+    }
+    setCaptureMessage(result ? `Order saved to Supabase, but Sheet sync needs attention: ${error.message}` : error.message);
+    if (result) {
+      pendingSheetSync = { result, reviewed };
+      button.textContent = 'Retry Google Sheet sync';
+    }
+    button.disabled = false;
+  }
+});
 
 async function loadStudentPortal() {
   const data = await studentApi('/api/student');

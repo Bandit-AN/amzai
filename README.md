@@ -149,6 +149,10 @@ The first order-tracking phase uses Supabase as the authoritative multi-tenant l
 
 The member portal's **Connect Google Sheet** button requests the narrow `drive.file` permission, opens Google Picker, and lets the signed-in member choose one workbook. The app verifies that the selected workbook contains `Order Tracking`, `Automated Order Expenses`, and `Backend`, then stores only its ID, title, and tab mapping in Supabase. This connection step does not modify any cells. A later sync worker will exchange short-lived Google authorization for row writes while Supabase remains the source of truth.
 
+The portal also provides a reviewed two-screenshot purchase capture. The retailer screenshot extracts supplier, order number, product, quantity, totals, and only the payment-card alias/last four digits; the Amazon screenshot establishes the ASIN and exact listing title. Browser-side compression keeps each image below the function payload limit, and screenshots are sent to Gemini for extraction but are not persisted. The member must review and confirm every field before the order becomes `ordered` in Supabase. The confirmed row is then written to `Order Tracking` A:O while preserving the prior row's formatting, dropdowns, and `PRICE PER` formula; the card alias is written to the corresponding `Automated Order Expenses` row. Failed Sheet writes leave the authoritative Supabase order intact and mark its sync record failed.
+
+Never upload a screenshot containing a full card number, CVV, account password, home address, phone number, or email. The extractor is instructed to reject screenshots that appear to contain sensitive payment data. This capture interface is the portal MVP; a browser extension and macOS global keyboard shortcut are separate packaging phases built on the same capture API.
+
 ## Run locally
 
 Use Node 20.18.1 or newer:

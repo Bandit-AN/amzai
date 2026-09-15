@@ -1,5 +1,7 @@
 import {
   config,
+  extractAmazonScreenshot,
+  extractOrderScreenshot,
   fetchPortalStudentByEmail,
   fetchPortalStudentById,
   jsonResponse,
@@ -24,6 +26,266 @@ async function organizationForUser(identity, token) {
   if (!response.ok) throw new Error(rows.message || 'Could not load your Buy Box Bandit organization');
   if (!rows[0]?.organization_id) throw new Error('Your Buy Box Bandit organization is not configured');
   return rows[0];
+}
+
+async function supabaseJson(url, options, fallbackMessage) {
+  const result = await fetch(url, options);
+  const data = await result.json().catch(() => ({}));
+  if (!result.ok) {
+    const error = new Error(data.message || data.details || fallbackMessage);
+    error.status = result.status;
+    throw error;
+  }
+  return data;
+}
+
+const validUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+const cleanText = (value, limit = 500) => String(value || '').trim().slice(0, limit);
+const cleanMoney = (value, fallback = null) => {
+  if (value === null || value === undefined || String(value).trim() === '') return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.round(number * 100) / 100 : fallback;
+};
+const cleanUrl = (value) => {
+  const text = cleanText(value, 1000);
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null;
+  } catch { return null; }
+};
+
+async function captureSession(tableUrl, headers, membership, identity, id) {
+  if (!validUuid(id)) throw new Error('Invalid capture session');
+  const rows = await supabaseJson(
+    `${tableUrl}?select=*&id=eq.${id}&organization_id=eq.${membership.organization_id}&created_by=eq.${identity.userId}&limit=1`,
+    { headers },
+    'Could not load the capture session',
+  );
+  if (!rows[0]) throw new Error('Capture session not found or expired');
+  return rows[0];
+}
+
+async function handleOrderCapture(request, response, identity) {
+  if (identity.type !== 'supabase') {
+    return jsonResponse(response, 403, { error: 'Sign in with Google to capture orders' });
+  }
+  const token = bearerToken(request);
+  const headers = supabaseHeaders(token);
+  const membership = await organizationForUser(identity, token);
+  const base = `${config.supabaseUrl}/rest/v1`;
+  const sessionTable = `${base}/capture_sessions`;
+
+  if (request.method === 'GET') {
+    const orders = await supabaseJson(
+      `${base}/purchase_orders?select=id,source_retailer,retailer_order_number,ordered_at,status,total,confirmed_at,purchase_order_items(id,product_title,quantity,unit_cost,asin,amazon_url)&organization_id=eq.${membership.organization_id}&order=created_at.desc&limit=10`,
+      { headers },
+      'Could not load recent captured orders',
+    );
+    return jsonResponse(response, 200, { ok: true, orders });
+  }
+  if (request.method !== 'POST') return jsonResponse(response, 405, { error: 'Method not allowed' });
+
+  const body = await readJsonBody(request);
+  const action = cleanText(body.action, 40);
+  if (action === 'extract_source') {
+    if (!config.geminiKey) throw new Error('Screenshot extraction is not configured');
+    const source = await extractOrderScreenshot(body.imageData, body.pageUrl);
+    const rows = await supabaseJson(sessionTable, {
+      method: 'POST',
+      headers: { ...headers, Prefer: 'return=representation' },
+      body: JSON.stringify([{
+        organization_id: membership.organization_id,
+        created_by: identity.userId,
+        status: 'source_captured',
+        source_page_url: cleanUrl(body.pageUrl),
+        source_capture: source,
+      }]),
+    }, 'Could not create the capture session');
+    return jsonResponse(response, 201, { ok: true, sessionId: rows[0].id, source });
+  }
+
+  if (action === 'extract_amazon') {
+    if (!config.geminiKey) throw new Error('Screenshot extraction is not configured');
+    const session = await captureSession(sessionTable, headers, membership, identity, body.sessionId);
+    if (!['source_captured', 'amazon_linked'].includes(session.status)) throw new Error('This capture session is already closed');
+    const amazon = await extractAmazonScreenshot(body.imageData, body.pageUrl);
+    const rows = await supabaseJson(
+      `${sessionTable}?id=eq.${session.id}&organization_id=eq.${membership.organization_id}`,
+      {
+        method: 'PATCH',
+        headers: { ...headers, Prefer: 'return=representation' },
+        body: JSON.stringify({ status: 'amazon_linked', amazon_page_url: cleanUrl(body.pageUrl), amazon_capture: amazon }),
+      },
+      'Could not attach the Amazon listing',
+    );
+    return jsonResponse(response, 200, { ok: true, sessionId: session.id, amazon, session: rows[0] });
+  }
+
+  if (action === 'confirm') {
+    const session = await captureSession(sessionTable, headers, membership, identity, body.sessionId);
+    if (session.status !== 'amazon_linked') throw new Error('Capture the retailer order and Amazon listing before confirming');
+    const retailer = cleanText(body.retailer, 120);
+    const productTitle = cleanText(body.productTitle);
+    const asin = cleanText(body.asin, 10).toUpperCase();
+    const quantity = Number(body.quantity);
+    const total = cleanMoney(body.total);
+    const unitCost = cleanMoney(body.unitCost, total && quantity > 0 ? total / quantity : null);
+    if (!retailer || !productTitle) throw new Error('Retailer and product title are required');
+    if (!/^B[A-Z0-9]{9}$/.test(asin)) throw new Error('Enter a valid 10-character Amazon ASIN');
+    if (!(quantity > 0 && quantity <= 100000)) throw new Error('Quantity must be greater than zero');
+    if (total === null) throw new Error('Order total is required');
+    const orderedAtDate = new Date(body.orderedAt || Date.now());
+    if (Number.isNaN(orderedAtDate.getTime())) throw new Error('Order date is invalid');
+    const lastFour = /^\d{4}$/.test(cleanText(body.cardLastFour, 4)) ? cleanText(body.cardLastFour, 4) : '';
+    const cardIssuer = cleanText(body.cardIssuer, 80);
+    let cardAlias = null;
+    if (lastFour) {
+      const existing = await supabaseJson(
+        `${base}/payment_card_aliases?select=id,label,last_four,issuer&organization_id=eq.${membership.organization_id}&last_four=eq.${lastFour}&is_active=eq.true&limit=1`,
+        { headers },
+        'Could not load payment-card aliases',
+      );
+      cardAlias = existing[0] || null;
+      if (!cardAlias) {
+        const label = `${cardIssuer || 'Card'} •••• ${lastFour}`;
+        const inserted = await supabaseJson(`${base}/payment_card_aliases`, {
+          method: 'POST',
+          headers: { ...headers, Prefer: 'return=representation' },
+          body: JSON.stringify([{
+            organization_id: membership.organization_id,
+            created_by: identity.userId,
+            label,
+            last_four: lastFour,
+            issuer: cardIssuer || null,
+          }]),
+        }, 'Could not save the card alias');
+        cardAlias = inserted[0];
+      }
+    }
+    const orderRows = await supabaseJson(`${base}/purchase_orders`, {
+      method: 'POST',
+      headers: { ...headers, Prefer: 'return=representation' },
+      body: JSON.stringify([{
+        organization_id: membership.organization_id,
+        created_by: identity.userId,
+        source_retailer: retailer,
+        source_url: cleanUrl(body.sourceUrl),
+        retailer_order_number: cleanText(body.orderNumber, 120) || null,
+        ordered_at: orderedAtDate.toISOString(),
+        status: 'draft',
+        currency: 'USD',
+        subtotal: cleanMoney(body.subtotal),
+        tax: cleanMoney(body.tax, 0),
+        shipping: cleanMoney(body.shipping, 0),
+        discount: cleanMoney(body.discount, 0),
+        total,
+        card_alias_id: cardAlias?.id || null,
+        receiving_location: cleanText(body.receivingLocation, 120) || 'House',
+        notes: cleanText(body.notes, 2000) || null,
+      }]),
+    }, 'Could not create the purchase order');
+    const order = orderRows[0];
+    let item;
+    try {
+      const itemRows = await supabaseJson(`${base}/purchase_order_items`, {
+        method: 'POST',
+        headers: { ...headers, Prefer: 'return=representation' },
+        body: JSON.stringify([{
+          organization_id: membership.organization_id,
+          purchase_order_id: order.id,
+          product_title: productTitle,
+          retailer_sku: cleanText(body.retailerSku, 120) || null,
+          variant: cleanText(body.variant, 200) || null,
+          quantity,
+          unit_cost: unitCost,
+          line_total: cleanMoney(body.lineTotal, total),
+          asin,
+          amazon_url: cleanUrl(body.amazonUrl) || `https://www.amazon.com/dp/${asin}`,
+          amazon_title: cleanText(body.amazonTitle) || null,
+          is_bundle: body.isBundle === true,
+          extraction_confidence: Math.min(1, Math.max(0, Number(body.extractionConfidence) || 0)),
+        }]),
+      }, 'Could not create the purchase-order item');
+      item = itemRows[0];
+      const confirmedAt = new Date().toISOString();
+      const confirmedRows = await supabaseJson(
+        `${base}/purchase_orders?id=eq.${order.id}&organization_id=eq.${membership.organization_id}`,
+        {
+          method: 'PATCH',
+          headers: { ...headers, Prefer: 'return=representation' },
+          body: JSON.stringify({ status: 'ordered', confirmed_at: confirmedAt }),
+        },
+        'Could not confirm the purchase order',
+      );
+      Object.assign(order, confirmedRows[0]);
+      await supabaseJson(
+        `${sessionTable}?id=eq.${session.id}&organization_id=eq.${membership.organization_id}`,
+        {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ status: 'confirmed', purchase_order_id: order.id }),
+        },
+        'Could not close the capture session',
+      );
+    } catch (error) {
+      throw new Error(`The order data was retained, but confirmation did not finish: ${error.message}`);
+    }
+    const connections = await supabaseJson(
+      `${base}/google_sheet_connections?select=id,spreadsheet_id,spreadsheet_title,order_tracking_tab,expenses_tab&organization_id=eq.${membership.organization_id}&is_active=eq.true&order=updated_at.desc&limit=1`,
+      { headers },
+      'Could not load the Google Sheet connection',
+    );
+    const connection = connections[0] || null;
+    let syncQueueError = null;
+    if (connection) {
+      try {
+        await supabaseJson(`${base}/google_sheet_sync_records`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(['Order Tracking', 'Automated Order Expenses'].map((targetTab) => ({
+            organization_id: membership.organization_id,
+            connection_id: connection.id,
+            purchase_order_id: order.id,
+            purchase_order_item_id: item.id,
+            target_tab: targetTab,
+            status: 'pending',
+          }))),
+        }, 'Could not queue the Google Sheet sync');
+      } catch (error) {
+        syncQueueError = cleanText(error.message, 500);
+      }
+    }
+    return jsonResponse(response, 201, { ok: true, order, item, cardAlias, connection, syncQueueError });
+  }
+
+  if (action === 'sync_status') {
+    const orderId = cleanText(body.orderId, 36);
+    const connectionId = cleanText(body.connectionId, 36);
+    if (!validUuid(orderId) || !validUuid(connectionId)) throw new Error('Invalid sync record');
+    const status = body.status === 'synced' ? 'synced' : 'failed';
+    for (const record of Array.isArray(body.records) ? body.records.slice(0, 2) : []) {
+      const targetTab = ['Order Tracking', 'Automated Order Expenses'].includes(record.targetTab) ? record.targetTab : null;
+      if (!targetTab) continue;
+      await supabaseJson(
+        `${base}/google_sheet_sync_records?organization_id=eq.${membership.organization_id}&connection_id=eq.${connectionId}&purchase_order_id=eq.${orderId}&target_tab=eq.${encodeURIComponent(targetTab)}`,
+        {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({
+            status,
+            target_row: Number(record.targetRow) > 0 ? Math.floor(Number(record.targetRow)) : null,
+            error_message: status === 'failed' ? cleanText(body.error, 500) : null,
+            synced_at: status === 'synced' ? new Date().toISOString() : null,
+          }),
+        },
+        'Could not update the Google Sheet sync status',
+      );
+    }
+    return jsonResponse(response, 200, { ok: true, status });
+  }
+
+  return jsonResponse(response, 400, { error: 'Unknown capture action' });
 }
 
 async function handleSheetConnection(request, response, identity) {
@@ -89,6 +351,9 @@ export default async function handler(request, response) {
     if (request.query?.resource === 'sheet') {
       return handleSheetConnection(request, response, identity);
     }
+    if (request.query?.resource === 'capture') {
+      return handleOrderCapture(request, response, identity);
+    }
     if (request.method === 'GET') {
       const { discordWebhookUrl: _privateWebhook, ...safeStudent } = student;
       return jsonResponse(response, 200, {
@@ -111,6 +376,7 @@ export default async function handler(request, response) {
     }
     return jsonResponse(response, 405, { error: 'Method not allowed' });
   } catch (error) {
-    return jsonResponse(response, 400, { ok: false, error: error.message });
+    const status = [401, 403, 409, 413].includes(Number(error.status)) ? Number(error.status) : 400;
+    return jsonResponse(response, status, { ok: false, error: error.message });
   }
 }
