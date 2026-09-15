@@ -136,6 +136,7 @@ async function handleOrderCapture(request, response, identity) {
     const session = await captureSession(sessionTable, headers, membership, identity, body.sessionId);
     if (session.status !== 'amazon_linked') throw new Error('Capture the retailer order and Amazon listing before confirming');
     const retailer = cleanText(body.retailer, 120);
+    const orderNumber = cleanText(body.orderNumber, 120);
     const productTitle = cleanText(body.productTitle);
     const asin = cleanText(body.asin, 10).toUpperCase();
     const quantity = Number(body.quantity);
@@ -173,17 +174,13 @@ async function handleOrderCapture(request, response, identity) {
         cardAlias = inserted[0];
       }
     }
-    const orderRows = await supabaseJson(`${base}/purchase_orders`, {
-      method: 'POST',
-      headers: { ...headers, Prefer: 'return=representation' },
-      body: JSON.stringify([{
+    const orderPayload = {
         organization_id: membership.organization_id,
         created_by: identity.userId,
         source_retailer: retailer,
         source_url: cleanUrl(body.sourceUrl),
-        retailer_order_number: cleanText(body.orderNumber, 120) || null,
+        retailer_order_number: orderNumber || null,
         ordered_at: orderedAtDate.toISOString(),
-        status: 'draft',
         currency: 'USD',
         subtotal: cleanMoney(body.subtotal),
         tax: cleanMoney(body.tax, 0),
@@ -193,15 +190,38 @@ async function handleOrderCapture(request, response, identity) {
         card_alias_id: cardAlias?.id || null,
         receiving_location: cleanText(body.receivingLocation, 120) || 'House',
         notes: cleanText(body.notes, 2000) || null,
-      }]),
-    }, 'Could not create the purchase order');
-    const order = orderRows[0];
-    let item;
-    try {
-      const itemRows = await supabaseJson(`${base}/purchase_order_items`, {
+    };
+    let order = null;
+    if (orderNumber) {
+      const existingOrders = await supabaseJson(
+        `${base}/purchase_orders?select=*&organization_id=eq.${membership.organization_id}&retailer_order_number=eq.${encodeURIComponent(orderNumber)}&limit=10`,
+        { headers },
+        'Could not check for an existing purchase order',
+      );
+      order = existingOrders.find((candidate) => String(candidate.source_retailer || '').toLowerCase() === retailer.toLowerCase()) || null;
+    }
+    if (order) {
+      const updatedRows = await supabaseJson(
+        `${base}/purchase_orders?id=eq.${order.id}&organization_id=eq.${membership.organization_id}`,
+        {
+          method: 'PATCH',
+          headers: { ...headers, Prefer: 'return=representation' },
+          body: JSON.stringify(orderPayload),
+        },
+        'Could not update the existing purchase order',
+      );
+      order = updatedRows[0] || order;
+    } else {
+      const orderRows = await supabaseJson(`${base}/purchase_orders`, {
         method: 'POST',
         headers: { ...headers, Prefer: 'return=representation' },
-        body: JSON.stringify([{
+        body: JSON.stringify([{ ...orderPayload, status: 'draft' }]),
+      }, 'Could not create the purchase order');
+      order = orderRows[0];
+    }
+    let item;
+    try {
+      const itemPayload = {
           organization_id: membership.organization_id,
           purchase_order_id: order.id,
           product_title: productTitle,
@@ -215,9 +235,37 @@ async function handleOrderCapture(request, response, identity) {
           amazon_title: cleanText(body.amazonTitle) || null,
           is_bundle: body.isBundle === true,
           extraction_confidence: Math.min(1, Math.max(0, Number(body.extractionConfidence) || 0)),
-        }]),
-      }, 'Could not create the purchase-order item');
-      item = itemRows[0];
+      };
+      const existingItems = await supabaseJson(
+        `${base}/purchase_order_items?select=*&organization_id=eq.${membership.organization_id}&purchase_order_id=eq.${order.id}`,
+        { headers },
+        'Could not check the existing purchase-order item',
+      );
+      const existingItem = existingItems.find((candidate) => candidate.asin === asin);
+      if (!existingItem && existingItems.length) {
+        const conflict = new Error('This retailer order number is already saved with a different ASIN. Multi-product order capture is not enabled yet.');
+        conflict.status = 409;
+        throw conflict;
+      }
+      if (existingItem) {
+        const itemRows = await supabaseJson(
+          `${base}/purchase_order_items?id=eq.${existingItem.id}&organization_id=eq.${membership.organization_id}`,
+          {
+            method: 'PATCH',
+            headers: { ...headers, Prefer: 'return=representation' },
+            body: JSON.stringify(itemPayload),
+          },
+          'Could not update the existing purchase-order item',
+        );
+        item = itemRows[0] || existingItem;
+      } else {
+        const itemRows = await supabaseJson(`${base}/purchase_order_items`, {
+          method: 'POST',
+          headers: { ...headers, Prefer: 'return=representation' },
+          body: JSON.stringify([itemPayload]),
+        }, 'Could not create the purchase-order item');
+        item = itemRows[0];
+      }
       const confirmedAt = new Date().toISOString();
       const confirmedRows = await supabaseJson(
         `${base}/purchase_orders?id=eq.${order.id}&organization_id=eq.${membership.organization_id}`,
@@ -239,7 +287,9 @@ async function handleOrderCapture(request, response, identity) {
         'Could not close the capture session',
       );
     } catch (error) {
-      throw new Error(`The order data was retained, but confirmation did not finish: ${error.message}`);
+      const confirmationError = new Error(`The order data was retained, but confirmation did not finish: ${error.message}`);
+      confirmationError.status = error.status;
+      throw confirmationError;
     }
     const connections = await supabaseJson(
       `${base}/google_sheet_connections?select=id,spreadsheet_id,spreadsheet_title,order_tracking_tab,expenses_tab&organization_id=eq.${membership.organization_id}&is_active=eq.true&order=updated_at.desc&limit=1`,
@@ -361,10 +411,10 @@ export default async function handler(request, response) {
       : await fetchPortalStudentById(identity.studentId);
     if (!student) return jsonResponse(response, 403, { error: 'This Google email is not an active Syndicate student' });
     if (request.query?.resource === 'sheet') {
-      return handleSheetConnection(request, response, identity);
+      return await handleSheetConnection(request, response, identity);
     }
     if (request.query?.resource === 'capture') {
-      return handleOrderCapture(request, response, identity);
+      return await handleOrderCapture(request, response, identity);
     }
     if (request.method === 'GET') {
       const { discordWebhookUrl: _privateWebhook, ...safeStudent } = student;
