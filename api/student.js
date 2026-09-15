@@ -425,6 +425,61 @@ async function handleSheetConnection(request, response, identity) {
   return jsonResponse(response, 405, { error: 'Method not allowed' });
 }
 
+async function handleOrders(request, response, identity) {
+  if (identity.type !== 'supabase') {
+    return jsonResponse(response, 403, { error: 'Sign in with Google to manage order tracking' });
+  }
+  const token = bearerToken(request);
+  const headers = supabaseHeaders(token);
+  const membership = await organizationForUser(identity, token);
+  const base = `${config.supabaseUrl}/rest/v1/purchase_orders`;
+  if (request.method === 'GET') {
+    const select = [
+      'id,source_retailer,retailer_order_number,ordered_at,status,total,receiving_location',
+      'tracking_number,carrier,expected_delivery_at,tracking_status,tracking_status_detail',
+      'tracking_last_event,tracking_last_checked_at,tracking_updated_at,tracking_events',
+      'purchase_order_items(id,product_title,quantity,unit_cost,line_total,asin,amazon_url)',
+    ].join(',');
+    const orders = await supabaseJson(
+      `${base}?select=${select}&organization_id=eq.${membership.organization_id}&order=ordered_at.desc&limit=100`,
+      { headers },
+      'Could not load order tracking. Run the order-tracking Supabase migration first.',
+    );
+    return jsonResponse(response, 200, { ok: true, orders, automaticTrackingConfigured: Boolean(config.easyPostApiKey) });
+  }
+  if (request.method === 'PATCH') {
+    const body = await readJsonBody(request);
+    const orderId = cleanText(body.orderId, 36);
+    if (!validUuid(orderId)) throw new Error('Invalid order');
+    const trackingNumber = cleanText(body.trackingNumber, 120).replace(/\s+/g, '');
+    if (!/^[A-Za-z0-9-]{6,120}$/.test(trackingNumber)) throw new Error('Enter a valid carrier tracking number');
+    const carrier = cleanText(body.carrier, 80);
+    const rows = await supabaseJson(
+      `${base}?id=eq.${orderId}&organization_id=eq.${membership.organization_id}`,
+      {
+        method: 'PATCH',
+        headers: { ...headers, Prefer: 'return=representation' },
+        body: JSON.stringify({
+          tracking_number: trackingNumber,
+          carrier: carrier || null,
+          tracking_provider: null,
+          tracking_provider_id: null,
+          tracking_status: 'unknown',
+          tracking_status_detail: null,
+          tracking_last_event: 'Tracking number added; awaiting the next carrier check.',
+          tracking_last_checked_at: null,
+          tracking_updated_at: new Date().toISOString(),
+          tracking_events: [],
+        }),
+      },
+      'Could not save the tracking number',
+    );
+    if (!rows[0]) throw new Error('Order not found');
+    return jsonResponse(response, 200, { ok: true, order: rows[0], automaticTrackingConfigured: Boolean(config.easyPostApiKey) });
+  }
+  return jsonResponse(response, 405, { error: 'Method not allowed' });
+}
+
 export default async function handler(request, response) {
   allowExtensionOrigin(request, response);
   if (request.method === 'OPTIONS') return response.status(204).end();
@@ -440,6 +495,9 @@ export default async function handler(request, response) {
     }
     if (request.query?.resource === 'capture') {
       return await handleOrderCapture(request, response, identity);
+    }
+    if (request.query?.resource === 'orders') {
+      return await handleOrders(request, response, identity);
     }
     if (request.method === 'GET') {
       const { discordWebhookUrl: _privateWebhook, ...safeStudent } = student;

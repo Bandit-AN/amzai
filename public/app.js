@@ -20,6 +20,7 @@ let sheetConnection = null;
 let captureSessionId = '';
 let captureDraft = { source: null, amazon: null };
 let pendingSheetSync = null;
+let trackedOrders = [];
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
 })[character]);
@@ -43,6 +44,96 @@ const studentApi = async (path, options = {}) => {
 const formatDate = (value) => value ? new Intl.DateTimeFormat('en-US', {
   month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
 }).format(new Date(value)) : 'Unknown time';
+
+const formatDay = (value) => value ? new Intl.DateTimeFormat('en-US', {
+  month: 'short', day: 'numeric', year: 'numeric',
+}).format(new Date(value)) : 'Not available';
+
+const trackingLabel = (status) => ({
+  not_tracked: 'Needs tracking', unknown: 'Awaiting carrier', pre_transit: 'Label created',
+  in_transit: 'In transit', out_for_delivery: 'Out for delivery', delivered: 'Delivered',
+  available_for_pickup: 'Ready for pickup', return_to_sender: 'Returning', failure: 'Exception',
+  cancelled: 'Cancelled', error: 'Tracking error',
+})[status] || String(status || 'Needs tracking').replaceAll('_', ' ');
+
+function trackingStage(status) {
+  if (status === 'delivered') return 3;
+  if (status === 'out_for_delivery') return 2;
+  if (['in_transit', 'available_for_pickup'].includes(status)) return 1;
+  return 0;
+}
+
+function renderTrackedOrders() {
+  const search = $('#orderSearchInput').value.trim().toLowerCase();
+  const filter = $('#orderStatusFilter').value;
+  const now = Date.now();
+  const arrivingCutoff = now + (3 * 24 * 60 * 60 * 1000);
+  const normalized = trackedOrders.map((order) => ({ ...order, tracking_status: order.tracking_status || 'not_tracked' }));
+  $('#ordersAwaitingMetric').textContent = normalized.filter((order) => !order.tracking_number).length;
+  $('#ordersTransitMetric').textContent = normalized.filter((order) => ['in_transit', 'out_for_delivery', 'available_for_pickup'].includes(order.tracking_status)).length;
+  $('#ordersArrivingMetric').textContent = normalized.filter((order) => {
+    const estimate = new Date(order.expected_delivery_at || '').getTime();
+    return estimate >= now && estimate <= arrivingCutoff && order.tracking_status !== 'delivered';
+  }).length;
+  $('#ordersDeliveredMetric').textContent = normalized.filter((order) => order.tracking_status === 'delivered' || order.status === 'delivered').length;
+  const filtered = normalized.filter((order) => {
+    const haystack = [order.source_retailer, order.retailer_order_number, order.tracking_number,
+      ...(order.purchase_order_items || []).flatMap((item) => [item.product_title, item.asin])].join(' ').toLowerCase();
+    if (search && !haystack.includes(search)) return false;
+    if (filter === 'needs_tracking') return !order.tracking_number;
+    if (filter === 'in_transit') return ['pre_transit', 'in_transit', 'out_for_delivery', 'available_for_pickup'].includes(order.tracking_status);
+    if (filter === 'delivered') return order.tracking_status === 'delivered' || order.status === 'delivered';
+    if (filter === 'exception') return ['return_to_sender', 'failure', 'cancelled', 'error'].includes(order.tracking_status);
+    return true;
+  });
+  if (!filtered.length) {
+    $('#ordersList').innerHTML = '<div class="empty-state">No orders match this view.</div>';
+    return;
+  }
+  $('#ordersList').innerHTML = filtered.map((order) => {
+    const status = order.tracking_status || 'not_tracked';
+    const stage = trackingStage(status);
+    const items = order.purchase_order_items || [];
+    const itemLines = items.map((item) => `<div class="order-item-line"><span>${escapeHtml(item.product_title)} · ${escapeHtml(item.asin || 'No ASIN')}</span><b>${Number(item.quantity || 0)} unit${Number(item.quantity) === 1 ? '' : 's'}</b></div>`).join('');
+    const events = Array.isArray(order.tracking_events) ? order.tracking_events.slice(-3).reverse() : [];
+    const latest = order.tracking_last_event || events[0]?.message || (order.tracking_number ? 'Waiting for the carrier’s first scan.' : 'Add the carrier tracking number when the retailer ships.');
+    return `<article class="order-card">
+      <div class="order-card-head">
+        <div class="order-identity"><strong>${escapeHtml(order.source_retailer)}</strong><span>Order ${escapeHtml(order.retailer_order_number || 'number unavailable')} · ${formatDay(order.ordered_at)} · $${Number(order.total || 0).toFixed(2)}</span></div>
+        <div class="order-shipment"><strong>${escapeHtml(latest)}</strong><span>${order.expected_delivery_at ? `Estimated ${formatDay(order.expected_delivery_at)}` : 'Estimated delivery unavailable'}${order.tracking_number ? ` · ${escapeHtml(order.carrier || 'Carrier')} ${escapeHtml(order.tracking_number)}` : ''}</span></div>
+        <span class="tracking-status ${escapeHtml(status)}">${escapeHtml(trackingLabel(status))}</span>
+      </div>
+      <div class="shipment-timeline">${['Ordered','In transit','Out for delivery','Delivered'].map((label, index) => `<span class="shipment-step ${index <= stage ? 'complete' : ''}">${label}</span>`).join('')}</div>
+      <div class="order-items">${itemLines || '<small>No product lines recorded.</small>'}</div>
+      <form class="tracking-entry" data-order-tracking-form data-order-id="${escapeHtml(order.id)}">
+        <input name="trackingNumber" value="${escapeHtml(order.tracking_number || '')}" placeholder="Carrier tracking number" required>
+        <select name="carrier"><option value="">Auto-detect carrier</option>${['USPS','UPS','FedEx','DHLExpress','AmazonShipping','OnTrac','LaserShip'].map((carrier) => `<option ${order.carrier === carrier ? 'selected' : ''}>${carrier}</option>`).join('')}</select>
+        <button class="primary-button" type="submit">${order.tracking_number ? 'Update tracking' : 'Start tracking'}</button>
+      </form>
+    </article>`;
+  }).join('');
+}
+
+async function loadTrackedOrders() {
+  const message = $('#ordersMessage');
+  if (!supabaseAccessToken) {
+    message.textContent = 'Sign in with Google to view your private order ledger.';
+    return;
+  }
+  message.textContent = 'Loading orders…';
+  try {
+    const data = await studentApi('/api/student?resource=orders');
+    trackedOrders = data.orders || [];
+    $('#trackingProviderNote').textContent = data.automaticTrackingConfigured
+      ? 'Automatic carrier checks are enabled daily. Add a tracking number once; future scans and estimated delivery updates happen automatically.'
+      : 'Order history is ready. Add the server-side EasyPost key to enable automatic daily carrier updates.';
+    $('#trackingProviderNote').classList.toggle('ready', data.automaticTrackingConfigured);
+    message.textContent = '';
+    renderTrackedOrders();
+  } catch (error) {
+    message.textContent = error.message;
+  }
+}
 
 const showNotice = (message, error = false) => {
   notice.textContent = message;
@@ -687,6 +778,47 @@ $('#connectSheetButton').addEventListener('click', async () => {
     await openGoogleSheetPicker();
   } catch (error) {
     status.textContent = error.message;
+  }
+});
+
+async function selectMemberTab(name) {
+  document.querySelectorAll('[data-member-tab]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.memberTab === name);
+  });
+  $('#memberOverviewPane').classList.toggle('hidden', name !== 'overview');
+  $('#memberOrdersPane').classList.toggle('hidden', name !== 'orders');
+  if (name === 'orders') await loadTrackedOrders();
+}
+
+document.querySelectorAll('[data-member-tab]').forEach((button) => {
+  button.addEventListener('click', () => selectMemberTab(button.dataset.memberTab));
+});
+$('#refreshOrdersButton').addEventListener('click', () => loadTrackedOrders());
+$('#orderSearchInput').addEventListener('input', renderTrackedOrders);
+$('#orderStatusFilter').addEventListener('change', renderTrackedOrders);
+$('#ordersList').addEventListener('submit', async (event) => {
+  const form = event.target.closest('[data-order-tracking-form]');
+  if (!form) return;
+  event.preventDefault();
+  const button = form.querySelector('button');
+  const message = $('#ordersMessage');
+  button.disabled = true;
+  message.textContent = 'Saving tracking number…';
+  try {
+    await studentApi('/api/student?resource=orders', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: form.dataset.orderId,
+        trackingNumber: form.elements.trackingNumber.value,
+        carrier: form.elements.carrier.value,
+      }),
+    });
+    message.textContent = 'Tracking saved. The daily carrier check will update its timeline.';
+    await loadTrackedOrders();
+  } catch (error) {
+    message.textContent = error.message;
+    button.disabled = false;
   }
 });
 

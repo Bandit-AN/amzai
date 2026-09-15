@@ -59,6 +59,11 @@
         <div><div class="eyebrow">The Buy Box Bandit · Member portal</div><h1 id="studentGreeting">Welcome to The Buy Box Bandit.</h1><p>Set your buying criteria once. Your private Discord webhook is managed by Seller Syndicate.</p></div>
         <button class="ghost-button" id="studentLogoutButton" type="button">Sign out</button>
       </div>
+      <nav class="member-tabs" aria-label="Member portal sections">
+        <button class="member-tab active" data-member-tab="overview" type="button">Workspace</button>
+        <button class="member-tab" data-member-tab="orders" type="button">Order tracking</button>
+      </nav>
+      <div id="memberOverviewPane">
       <section class="onboarding-grid">
         <article class="panel video-panel">
           <div class="video-placeholder" id="videoPlaceholder"><img src="/assets/buybox-bandit-logo.png" alt=""><span>Onboarding video coming soon</span></div>
@@ -161,6 +166,31 @@
         <p class="form-error" id="storefrontMessage" role="status"></p>
         <div class="storefront-list" id="storefrontList"><div class="empty-state">Sign in with Google to manage storefronts.</div></div>
       </section>
+      </div>
+      <div class="hidden" id="memberOrdersPane">
+        <section class="order-tracking-hero">
+          <div><span class="eyebrow">Inbound inventory</span><h2>Every purchase, one shipping timeline.</h2><p>Track retailer orders from purchase through delivery without digging through confirmation emails.</p></div>
+          <button class="secondary-button" id="refreshOrdersButton" type="button">Refresh statuses</button>
+        </section>
+        <section class="tracking-metrics">
+          <article><span>Awaiting tracking</span><strong id="ordersAwaitingMetric">—</strong></article>
+          <article><span>In transit</span><strong id="ordersTransitMetric">—</strong></article>
+          <article><span>Arriving soon</span><strong id="ordersArrivingMetric">—</strong></article>
+          <article><span>Delivered</span><strong id="ordersDeliveredMetric">—</strong></article>
+        </section>
+        <section class="panel orders-panel">
+          <div class="orders-toolbar">
+            <div><span class="eyebrow">Order ledger</span><h2>Tracked shipments</h2></div>
+            <div class="orders-controls">
+              <input id="orderSearchInput" type="search" placeholder="Search order, retailer, ASIN…">
+              <select id="orderStatusFilter"><option value="all">All statuses</option><option value="needs_tracking">Needs tracking</option><option value="in_transit">In transit</option><option value="delivered">Delivered</option><option value="exception">Exceptions</option></select>
+            </div>
+          </div>
+          <div class="tracking-provider-note" id="trackingProviderNote">Loading carrier tracking configuration…</div>
+          <p class="form-error" id="ordersMessage" role="status"></p>
+          <div class="orders-list" id="ordersList"><div class="empty-state">Open this tab to load your orders.</div></div>
+        </section>
+      </div>
     </section>
 
     <section class="dashboard hidden" id="dashboardView">

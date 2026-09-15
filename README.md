@@ -168,6 +168,12 @@ Install it once in Chrome:
 
 The shortcut can be changed at `chrome://extensions/shortcuts`. Chrome does not permit captures on protected pages such as `chrome://` settings or the Chrome Web Store. Keep the extension loaded from the same directory so its unpacked extension ID—and therefore its Supabase redirect URL—remains stable. A future Chrome Web Store package will use its published extension ID instead.
 
+### Order tracking dashboard
+
+The member portal's **Order tracking** tab reads the student's private Supabase order ledger and presents shipment counts, search and status filters, product lines, carrier events, and an estimated-delivery timeline. Retailer order numbers are identifiers inside a retailer's account and cannot normally be queried through public carrier APIs. A carrier tracking number must therefore be added to the order manually, captured from an authorized retailer connection, or collected by a future read-only email integration.
+
+Run [`supabase/order-tracking.sql`](supabase/order-tracking.sql) once after the order-ledger schema. Add the server-only `EASYPOST_API_KEY` in Vercel to turn on automatic tracking. `/api/order-tracking` creates or retrieves standalone EasyPost trackers and updates every undelivered order once daily at `16:00 UTC`; the portal itself never receives the EasyPost credential. EasyPost bills a standalone tracker when it is created rather than on every dashboard refresh, and production duplicate tracker creation is deduplicated by carrier and tracking code for three months.
+
 ## Run locally
 
 Use Node 20.18.1 or newer:
