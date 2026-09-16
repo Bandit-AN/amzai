@@ -71,6 +71,8 @@ Copy `.env.example` to `.env` and set the same variables in Vercel for Productio
 - `ONBOARDING_VIDEO_URL`: an embeddable HTTPS video URL; leave blank to show the branded placeholder.
 - `GOOGLE_PICKER_API_KEY`: the browser key used only to open Google Picker. Restrict it in Google Cloud to the Google Picker API and the production/preview website origins.
 - `GOOGLE_CLOUD_PROJECT_NUMBER`: the numeric Google Cloud project number used as the Picker app ID. Both Picker values are intentionally returned to the browser; they are identifiers, not OAuth client secrets.
+- `GOOGLE_GMAIL_CLIENT_ID` and `GOOGLE_GMAIL_CLIENT_SECRET`: server-only credentials for a Google Web OAuth client whose exact authorized redirect URI is `https://app.sellersyndicate.org/api/student?resource=gmail&action=callback`.
+- `GMAIL_TOKEN_ENCRYPTION_KEY`: a separate random secret used to encrypt Gmail refresh tokens with AES-256-GCM before storage. Never expose it to the browser or reuse an API key.
 - `KEEPA_TOKENS_PER_MINUTE`: the refill rate shown by Keepa; this controls QStash spacing.
 - `KEEPA_SEARCH_RESULTS`: number of Amazon candidates evaluated per Walmart product from the direct UPC/EAN code lookup; defaults to `5`, capped at `10`.
 - `KEEPA_ESTIMATED_TOKENS_PER_CANDIDATE`: conservative scheduling budget for a direct UPC/EAN product-code lookup that may return multiple ASINs; defaults to `15`.
@@ -172,7 +174,9 @@ The shortcut can be changed at `chrome://extensions/shortcuts`. Chrome does not 
 
 The member portal's **Order tracking** tab reads the student's private Supabase order ledger and presents shipment counts, search and status filters, product lines, carrier events, and an estimated-delivery timeline. Retailer order numbers are identifiers inside a retailer's account and cannot normally be queried through public carrier APIs. A carrier tracking number must therefore be added to the order manually, captured from an authorized retailer connection, or collected by a future read-only email integration.
 
-Run [`supabase/order-tracking.sql`](supabase/order-tracking.sql) once after the order-ledger schema. Add the server-only `EASYPOST_API_KEY` in Vercel to turn on automatic tracking. The daily order task routes through `/api/storefronts?task=orders` to stay within Vercel Hobby's 12-function deployment limit; it creates or retrieves standalone EasyPost trackers and updates every undelivered order once daily at `16:00 UTC`. The portal itself never receives the EasyPost credential. EasyPost bills a standalone tracker when it is created rather than on every dashboard refresh, and production duplicate tracker creation is deduplicated by carrier and tracking code for three months.
+Run [`supabase/order-tracking.sql`](supabase/order-tracking.sql) once after the order-ledger schema. Configure the Gmail OAuth variables described above, enable the Gmail API in Google Cloud, and add the exact callback URL to the Web OAuth client. A member then clicks **Connect shipping email** in the Order tracking tab and grants read-only Gmail access. The encrypted refresh token stays server-side. Once daily at `16:00 UTC`, `/api/storefronts?task=orders` reads recent shipping-related messages, requires the saved retailer order number to appear in the message, and extracts the carrier tracking number, shipping stage, and estimated delivery date. Message bodies are processed in memory and are not stored; only the matched subject/sender and normalized shipment fields are saved.
+
+`EASYPOST_API_KEY` is optional. When present, it supplements email discovery with carrier-native scans; without it, Gmail remains the automatic daily status source. Before public launch, Google may require OAuth verification because Gmail read-only access is a restricted scope. During testing, add each permitted inbox under the OAuth consent screen's **Test users**.
 
 ## Run locally
 

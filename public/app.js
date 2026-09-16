@@ -124,9 +124,13 @@ async function loadTrackedOrders() {
   try {
     const data = await studentApi('/api/student?resource=orders');
     trackedOrders = data.orders || [];
-    $('#trackingProviderNote').textContent = data.automaticTrackingConfigured
-      ? 'Automatic carrier checks are enabled daily. Add a tracking number once; future scans and estimated delivery updates happen automatically.'
-      : 'Order history is ready. Add the server-side EasyPost key to enable automatic daily carrier updates.';
+    $('#connectGmailButton').textContent = data.gmailConnection ? 'Shipping email connected' : 'Connect shipping email';
+    $('#connectGmailButton').classList.toggle('ready', Boolean(data.gmailConnection));
+    $('#trackingProviderNote').textContent = data.gmailConnection
+      ? `Daily shipping-email checks are active for ${data.gmailConnection.google_email}.${data.gmailConnection.last_checked_at ? ` Last checked ${formatDate(data.gmailConnection.last_checked_at)}.` : ''}${data.gmailConnection.last_error ? ` Last error: ${data.gmailConnection.last_error}` : ''}`
+      : (data.automaticTrackingConfigured
+        ? 'Automatic carrier checks are active. Connect shipping email to discover tracking numbers automatically.'
+        : 'Connect the inbox that receives retailer shipping confirmations. Only read-only Gmail access is requested.');
     $('#trackingProviderNote').classList.toggle('ready', data.automaticTrackingConfigured);
     message.textContent = '';
     renderTrackedOrders();
@@ -794,6 +798,16 @@ document.querySelectorAll('[data-member-tab]').forEach((button) => {
   button.addEventListener('click', () => selectMemberTab(button.dataset.memberTab));
 });
 $('#refreshOrdersButton').addEventListener('click', () => loadTrackedOrders());
+$('#connectGmailButton').addEventListener('click', async () => {
+  const message = $('#ordersMessage');
+  message.textContent = 'Opening Google permission screen…';
+  try {
+    const data = await studentApi('/api/student?resource=gmail');
+    window.location.assign(data.authorizationUrl);
+  } catch (error) {
+    message.textContent = error.message;
+  }
+});
 $('#orderSearchInput').addEventListener('input', renderTrackedOrders);
 $('#orderStatusFilter').addEventListener('change', renderTrackedOrders);
 $('#ordersList').addEventListener('submit', async (event) => {
@@ -853,6 +867,14 @@ runButton.addEventListener('click', async () => {
 });
 
 async function initializePortal() {
+  const query = new URLSearchParams(window.location.search);
+  if (query.get('gmail') === 'connected') {
+    sessionStorage.setItem('bbb_gmail_notice', 'Shipping email connected. Daily order updates are now active.');
+    history.replaceState({}, '', '/');
+  } else if (query.get('gmail') === 'error') {
+    sessionStorage.setItem('bbb_gmail_notice', query.get('message') || 'Gmail connection failed.');
+    history.replaceState({}, '', '/');
+  }
   try {
     const response = await fetch('/api/auth');
     const publicConfig = await response.json();
@@ -878,7 +900,14 @@ async function initializePortal() {
     }
   } catch {}
   if (secret) return loadDashboard().then(() => { refreshTimer = setInterval(loadDashboard, 30000); }).catch(lock);
-  return loadStudentPortal().catch(() => { lock(); selectLoginTab(true); });
+  return loadStudentPortal().then(() => {
+    const gmailNotice = sessionStorage.getItem('bbb_gmail_notice');
+    if (gmailNotice) {
+      sessionStorage.removeItem('bbb_gmail_notice');
+      selectMemberTab('orders');
+      $('#ordersMessage').textContent = gmailNotice;
+    }
+  }).catch(() => { lock(); selectLoginTab(true); });
 }
 
 initializePortal();

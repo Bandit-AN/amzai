@@ -9,6 +9,7 @@ import {
   readPortalIdentity,
   updatePortalStudent,
 } from '../lib/platform.js';
+import { finishGmailConnection, gmailAuthorizationUrl } from '../lib/email-tracking.js';
 
 const bearerToken = (request) => String(request.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
 const supabaseHeaders = (token) => ({
@@ -445,7 +446,17 @@ async function handleOrders(request, response, identity) {
       { headers },
       'Could not load order tracking. Run the order-tracking Supabase migration first.',
     );
-    return jsonResponse(response, 200, { ok: true, orders, automaticTrackingConfigured: Boolean(config.easyPostApiKey) });
+    const gmailResponse = await fetch(
+      `${config.supabaseUrl}/rest/v1/gmail_connections?select=id,google_email,is_active,last_checked_at,last_error&organization_id=eq.${membership.organization_id}&is_active=eq.true&limit=1`,
+      { headers },
+    );
+    const gmailRows = gmailResponse.ok ? await gmailResponse.json().catch(() => []) : [];
+    return jsonResponse(response, 200, {
+      ok: true,
+      orders,
+      automaticTrackingConfigured: Boolean(gmailRows[0] || config.easyPostApiKey),
+      gmailConnection: gmailRows[0] || null,
+    });
   }
   if (request.method === 'PATCH') {
     const body = await readJsonBody(request);
@@ -480,9 +491,54 @@ async function handleOrders(request, response, identity) {
   return jsonResponse(response, 405, { error: 'Method not allowed' });
 }
 
+async function handleGmailConnection(request, response, identity) {
+  if (identity.type !== 'supabase') return jsonResponse(response, 403, { error: 'Sign in with Google to connect Gmail' });
+  const token = bearerToken(request);
+  const membership = await organizationForUser(identity, token);
+  if (request.method === 'GET') {
+    return jsonResponse(response, 200, {
+      ok: true,
+      authorizationUrl: gmailAuthorizationUrl({
+        organizationId: membership.organization_id,
+        userId: identity.userId,
+        email: identity.email,
+      }),
+    });
+  }
+  if (request.method === 'DELETE') {
+    await supabaseJson(
+      `${config.supabaseUrl}/rest/v1/gmail_connections?organization_id=eq.${membership.organization_id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: config.supabaseServiceRoleKey,
+          Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ is_active: false, updated_at: new Date().toISOString() }),
+      },
+      'Could not disconnect Gmail',
+    );
+    return jsonResponse(response, 200, { ok: true });
+  }
+  return jsonResponse(response, 405, { error: 'Method not allowed' });
+}
+
 export default async function handler(request, response) {
   allowExtensionOrigin(request, response);
   if (request.method === 'OPTIONS') return response.status(204).end();
+  if (request.query?.resource === 'gmail' && request.query?.action === 'callback') {
+    try {
+      await finishGmailConnection(String(request.query.code || ''), String(request.query.state || ''));
+      response.statusCode = 302;
+      response.setHeader('Location', '/?gmail=connected');
+      return response.end();
+    } catch (error) {
+      response.statusCode = 302;
+      response.setHeader('Location', `/?gmail=error&message=${encodeURIComponent(error.message)}`);
+      return response.end();
+    }
+  }
   const identity = await readPortalIdentity(request);
   if (!identity) return jsonResponse(response, 401, { error: 'Please sign in' });
   try {
@@ -498,6 +554,9 @@ export default async function handler(request, response) {
     }
     if (request.query?.resource === 'orders') {
       return await handleOrders(request, response, identity);
+    }
+    if (request.query?.resource === 'gmail') {
+      return await handleGmailConnection(request, response, identity);
     }
     if (request.method === 'GET') {
       const { discordWebhookUrl: _privateWebhook, ...safeStudent } = student;

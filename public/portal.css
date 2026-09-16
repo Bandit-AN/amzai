@@ -218,6 +218,7 @@
 .orders-controls input { min-width:250px; }
 .tracking-provider-note { margin:16px 0; padding:11px 13px; border:1px solid #e5dfd5; border-radius:10px; background:#faf8f4; color:#6e675e; font-size:12px; }
 .tracking-provider-note.ready { border-color:#cbe7d7; background:#f1faf5; color:#176843; }
+#connectGmailButton.ready { border-color:#77b891; color:#176843; background:#f1faf5; }
 .orders-list { display:grid; gap:11px; }
 .order-card { border:1px solid #e1dcd4; border-radius:14px; background:#fff; overflow:hidden; }
 .order-card-head { display:grid; grid-template-columns:minmax(180px,1fr) minmax(180px,1fr) auto; gap:18px; align-items:center; padding:17px 18px; }
