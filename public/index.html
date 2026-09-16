@@ -25,10 +25,14 @@
     </header>
 
     <section class="login-card" id="loginView">
-      <img class="login-logo" src="/assets/buybox-bandit-logo.png" alt="The Buy Box Bandit">
-      <div class="eyebrow">Presented by Seller Syndicate</div>
-      <h1>The Buy Box Bandit.<br><span>Find inventory before the market does.</span></h1>
-      <p>Sign in to complete onboarding, manage your sourcing preferences, and receive private daily opportunities.</p>
+      <div class="login-brand-panel">
+        <div class="login-wordmark"><img class="login-logo" src="/assets/buybox-bandit-logo.png" alt="The Buy Box Bandit"><span><b>BUY BOX</b><strong>BANDIT</strong><small>BY SELLER SYNDICATE</small></span></div>
+        <div class="login-brand-copy"><div class="eyebrow">Seller intelligence platform</div><h1>Operate like a<br><span>bandit.</span></h1><p>Source profitable products, monitor competitor storefronts, capture purchases, and track every inbound order from one workspace.</p></div>
+        <div class="login-feature-list"><span><i>◇</i>Verified sourcing leads</span><span><i>▱</i>Private storefront alerts</span><span><i>▣</i>Order capture and tracking</span></div>
+        <small class="login-brand-footer">THE BUY BOX BANDIT · PRESENTED BY SELLER SYNDICATE</small>
+      </div>
+      <div class="login-auth-panel">
+      <div class="login-auth-heading"><span class="login-auth-icon">↗</span><div><div class="eyebrow">Secure member access</div><h2>Welcome back</h2><p>Sign in to open your Seller Syndicate workspace.</p></div></div>
       <div class="login-tabs" role="tablist">
         <button class="login-tab active" id="studentTab" type="button">Student login</button>
         <button class="login-tab" id="adminTab" type="button">Admin</button>
@@ -53,6 +57,8 @@
         </div>
         <p class="form-error" id="loginError" role="alert"></p>
       </form>
+      <div class="login-security-note"><span>●</span><p><strong>Protected workspace</strong><small>Your connected accounts and private seller data remain isolated to your organization.</small></p></div>
+      </div>
     </section>
 
     <section class="dashboard member-app hidden" id="studentView">
