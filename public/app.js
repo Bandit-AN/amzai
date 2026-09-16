@@ -76,6 +76,11 @@ function renderTrackedOrders() {
     return estimate >= now && estimate <= arrivingCutoff && order.tracking_status !== 'delivered';
   }).length;
   $('#ordersDeliveredMetric').textContent = normalized.filter((order) => order.tracking_status === 'delivered' || order.status === 'delivered').length;
+  $('#memberActiveOrders').textContent = normalized.filter((order) => !['delivered', 'cancelled', 'returned'].includes(order.status)).length;
+  $('#memberTransitOrders').textContent = normalized.filter((order) => ['in_transit', 'out_for_delivery', 'available_for_pickup'].includes(order.tracking_status)).length;
+  $('#memberOutForDelivery').textContent = `${normalized.filter((order) => order.tracking_status === 'out_for_delivery').length} out for delivery`;
+  $('#memberDeliveredOrders').textContent = normalized.filter((order) => order.tracking_status === 'delivered' || order.status === 'delivered').length;
+  renderMemberActivity(normalized);
   const filtered = normalized.filter((order) => {
     const haystack = [order.source_retailer, order.retailer_order_number, order.tracking_number,
       ...(order.purchase_order_items || []).flatMap((item) => [item.product_title, item.asin])].join(' ').toLowerCase();
@@ -112,6 +117,20 @@ function renderTrackedOrders() {
       </form>
     </article>`;
   }).join('');
+}
+
+function renderMemberActivity(orders) {
+  const list = $('#memberRecentActivity');
+  const recent = [...orders]
+    .sort((left, right) => new Date(right.tracking_updated_at || right.ordered_at) - new Date(left.tracking_updated_at || left.ordered_at))
+    .slice(0, 4);
+  list.innerHTML = recent.length ? recent.map((order) => {
+    const status = order.tracking_status || 'not_tracked';
+    const label = status === 'delivered' ? 'Shipment delivered'
+      : status === 'out_for_delivery' ? 'Out for delivery'
+        : ['in_transit', 'available_for_pickup'].includes(status) ? 'Order is moving' : 'Order captured';
+    return `<div class="member-activity-item"><span>${status === 'delivered' ? '✓' : status === 'out_for_delivery' ? '▣' : '◇'}</span><div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(order.source_retailer)} · ${escapeHtml(order.retailer_order_number || 'order number unavailable')}</small></div><time>${formatDate(order.tracking_updated_at || order.ordered_at)}</time></div>`;
+  }).join('') : '<div class="empty-state">Capture your first order to start the activity feed.</div>';
 }
 
 async function loadTrackedOrders() {
@@ -253,6 +272,7 @@ async function loadDashboard() {
   try {
     const data = await api('/api/admin');
     loginView.classList.add('hidden');
+    document.body.classList.remove('member-mode');
     dashboardView.classList.remove('hidden');
     lockButton.classList.remove('hidden');
     $('#keepaTokens').textContent = data.keepa.tokensLeft;
@@ -277,6 +297,7 @@ function lock() {
   loginView.classList.remove('hidden');
   lockButton.classList.add('hidden');
   secretInput.value = '';
+  document.body.classList.remove('member-mode');
 }
 
 const selectLoginTab = (studentMode) => {
@@ -287,6 +308,7 @@ const selectLoginTab = (studentMode) => {
 };
 
 function renderStorefronts(storefronts) {
+  $('#memberTrackedStores').textContent = storefronts.length;
   const list = $('#storefrontList');
   if (!supabaseAccessToken) {
     list.innerHTML = '<div class="empty-state">Sign in with Google to manage storefronts.</div>';
@@ -672,6 +694,11 @@ async function loadStudentPortal() {
   studentView.classList.remove('hidden');
   lockButton.classList.add('hidden');
   $('#studentGreeting').textContent = `Welcome, ${student.name}.`;
+  $('#memberSidebarName').textContent = student.name;
+  $('#memberAvatar').textContent = String(student.name || 'BB').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  $('#memberToday').textContent = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+  }).format(new Date());
   $('#minRoiInput').value = student.minRoi;
   $('#minSalesInput').value = student.minMonthlySales;
   $('#maxCostInput').value = student.maxCost;
@@ -685,7 +712,8 @@ async function loadStudentPortal() {
     $('#onboardingVideo').classList.remove('hidden');
     $('#videoPlaceholder').classList.add('hidden');
   }
-  await Promise.all([loadStorefronts(), loadSheetConnection()]);
+  document.body.classList.add('member-mode');
+  await Promise.allSettled([loadStorefronts(), loadSheetConnection(), loadTrackedOrders()]);
 }
 
 $('#studentTab').addEventListener('click', () => selectLoginTab(true));
@@ -791,11 +819,46 @@ async function selectMemberTab(name) {
   });
   $('#memberOverviewPane').classList.toggle('hidden', name !== 'overview');
   $('#memberOrdersPane').classList.toggle('hidden', name !== 'orders');
+  document.querySelectorAll('[data-member-route]').forEach((button) => {
+    if (name === 'orders') button.classList.toggle('active', button.dataset.memberRoute === 'orders');
+    else if (button.dataset.memberRoute === 'orders') button.classList.remove('active');
+  });
   if (name === 'orders') await loadTrackedOrders();
+}
+
+async function selectMemberRoute(route) {
+  const orders = route === 'orders';
+  await selectMemberTab(orders ? 'orders' : 'overview');
+  document.querySelectorAll('.member-side-nav [data-member-route]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.memberRoute === route);
+  });
+  if (orders) return;
+  const target = {
+    overview: 'memberOverviewPane', sourcing: 'sourcingSection', storefronts: 'storefrontSection',
+    capture: 'captureSection', settings: 'settingsSection',
+  }[route];
+  if (target && route !== 'overview') {
+    requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  } else window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 document.querySelectorAll('[data-member-tab]').forEach((button) => {
   button.addEventListener('click', () => selectMemberTab(button.dataset.memberTab));
+});
+document.querySelectorAll('[data-member-route]').forEach((button) => {
+  button.addEventListener('click', () => selectMemberRoute(button.dataset.memberRoute));
+});
+$('#memberGlobalSearch').addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  $('#orderSearchInput').value = event.currentTarget.value;
+  selectMemberRoute('orders');
+});
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && !studentView.classList.contains('hidden')) {
+    event.preventDefault();
+    $('#memberGlobalSearch').focus();
+  }
 });
 $('#refreshOrdersButton').addEventListener('click', () => loadTrackedOrders());
 $('#connectGmailButton').addEventListener('click', async () => {
@@ -844,6 +907,7 @@ $('#studentLogoutButton').addEventListener('click', async () => {
   sessionStorage.removeItem('bbb_google_drive_ready');
   await fetch('/api/auth', { method: 'DELETE' }).catch(() => {});
   studentView.classList.add('hidden'); loginView.classList.remove('hidden'); selectLoginTab(true);
+  document.body.classList.remove('member-mode');
 });
 
 adminLoginForm.addEventListener('submit', async (event) => {
@@ -868,6 +932,22 @@ runButton.addEventListener('click', async () => {
 
 async function initializePortal() {
   const query = new URLSearchParams(window.location.search);
+  if (['localhost', '127.0.0.1'].includes(window.location.hostname) && query.get('preview') === 'member') {
+    loginView.classList.add('hidden');
+    studentView.classList.remove('hidden');
+    document.body.classList.add('member-mode');
+    $('#studentGreeting').textContent = 'Welcome back, Ayden.';
+    $('#memberSidebarName').textContent = 'Ayden Nguyen';
+    $('#memberAvatar').textContent = 'AN';
+    $('#memberToday').textContent = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date());
+    $('#memberActiveOrders').textContent = '0';
+    $('#memberTransitOrders').textContent = '0';
+    $('#memberOutForDelivery').textContent = '0 out for delivery';
+    $('#memberTrackedStores').textContent = '0';
+    $('#memberDeliveredOrders').textContent = '0';
+    renderMemberActivity([]);
+    return;
+  }
   if (query.get('gmail') === 'connected') {
     sessionStorage.setItem('bbb_gmail_notice', 'Shipping email connected. Daily order updates are now active.');
     history.replaceState({}, '', '/');
