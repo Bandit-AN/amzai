@@ -2,13 +2,14 @@
   "manifest_version": 3,
   "name": "The Buy Box Bandit — Order Capture",
   "description": "Capture retailer orders and Amazon listings, review every field, then save to the Buy Box Bandit ledger.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "permissions": [
     "activeTab",
     "tabs",
     "storage",
     "unlimitedStorage",
-    "identity"
+    "identity",
+    "scripting"
   ],
   "host_permissions": [
     "https://app.sellersyndicate.org/*",

@@ -28,6 +28,43 @@ async function loadPublicConfig() {
   return data;
 }
 
+async function importDashboardSession() {
+  const tabs = await chrome.tabs.query({
+    url: [
+      `${APP_ORIGIN}/*`,
+      'https://amzai-tau.vercel.app/*',
+    ],
+  });
+  const dashboardTab = tabs.find((tab) => tab.id);
+  if (!dashboardTab?.id) return null;
+  const [{ result } = {}] = await chrome.scripting.executeScript({
+    target: { tabId: dashboardTab.id },
+    func: () => {
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!/^sb-.+-auth-token$/.test(String(key || ''))) continue;
+        try {
+          const stored = JSON.parse(localStorage.getItem(key));
+          const session = stored?.currentSession || stored;
+          if (session?.access_token && session?.refresh_token) return session;
+        } catch {}
+      }
+      return null;
+    },
+  });
+  if (!result?.access_token) return null;
+  authSession = {
+    access_token: result.access_token,
+    refresh_token: result.refresh_token || '',
+    provider_token: result.provider_token || '',
+    expires_at: Number(result.expires_at || 0),
+    user: result.user || null,
+  };
+  await verifyMembership();
+  await chrome.storage.local.set({ bbb_extension_session: authSession });
+  return authSession;
+}
+
 async function exchangePkceCode(code, verifier) {
   const response = await fetch(`${publicConfig.supabase.url}/auth/v1/token?grant_type=pkce`, {
     method: 'POST',
@@ -540,6 +577,10 @@ async function loadState() {
     await chrome.storage.local.remove('bbb_capture_error');
   }
   await loadPublicConfig();
+  if (!authSession) {
+    try { await importDashboardSession(); }
+    catch { authSession = null; }
+  }
   if (authSession) {
     try { await verifyMembership(); }
     catch { authSession = null; await chrome.storage.local.remove('bbb_extension_session'); }
@@ -555,7 +596,14 @@ async function loadState() {
 
 $('#signInButton').addEventListener('click', async () => {
   $('#signInButton').disabled = true;
-  try { await signIn(); setStatus('Signed in. Capture a retailer order page.'); }
+  try {
+    const imported = await importDashboardSession();
+    if (!imported) await signIn();
+    renderAuth();
+    setStatus(imported
+      ? 'Connected to your open Seller Syndicate dashboard. Capture a retailer order page.'
+      : 'Signed in. Capture a retailer order page.');
+  }
   catch (error) { setStatus(error.message, true); }
   finally { $('#signInButton').disabled = false; }
 });
