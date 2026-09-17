@@ -31,6 +31,7 @@ import {
 
 export default async function handler(request, response) {
   let activeCollectionId;
+  let continuingCollectionRequest = false;
   if (!['GET', 'POST'].includes(request.method)) return jsonResponse(response, 405, { error: 'Method not allowed' });
   const internalRequest = request.method === 'POST' && workerAuthorized(request);
   if (!internalRequest && config.cronSecret && request.headers.authorization !== `Bearer ${config.cronSecret}`) {
@@ -83,6 +84,7 @@ export default async function handler(request, response) {
       ? Math.max(config.minimumMonthlySales, requestedMinMonthlySales)
       : null;
     const continuingCollection = typeof input.collectionId === 'string' && input.collectionId.length > 0;
+    continuingCollectionRequest = continuingCollection;
     // Explicit operator override for an already-collected cohort. The default
     // remains a hard 100; this only lets an authenticated request launch a
     // preserved short cohort after the operator approves the shortfall.
@@ -91,9 +93,24 @@ export default async function handler(request, response) {
     const collectionId = continuingCollection ? input.collectionId : randomUUID();
     activeCollectionId = collectionId;
     if (!continuingCollection) {
-      const claimed = await redis.set('walmart:freshCollection:active', collectionId, {
+      let claimed = await redis.set('walmart:freshCollection:active', collectionId, {
         nx: true, ex: config.runTtlSeconds,
       });
+      if (!claimed) {
+        const existingCollectionId = await redis.get('walmart:freshCollection:active');
+        const existingCollection = existingCollectionId
+          ? await redis.get(`walmart:freshCollection:${existingCollectionId}`)
+          : null;
+        // Recover from an interrupted discovery request that left only the
+        // global lock behind. A real active collection always has a state
+        // record, so an owner without one cannot be resumed.
+        if (existingCollectionId && !existingCollection) {
+          await redis.del('walmart:freshCollection:active');
+          claimed = await redis.set('walmart:freshCollection:active', collectionId, {
+            nx: true, ex: config.runTtlSeconds,
+          });
+        }
+      }
       if (!claimed) {
         return jsonResponse(response, 409, {
           ok: false,
@@ -101,6 +118,15 @@ export default async function handler(request, response) {
           collectionId: await redis.get('walmart:freshCollection:active'),
         });
       }
+      // Create state immediately so concurrent requests can distinguish a
+      // discovery in progress from an orphaned lock.
+      await redis.set(`walmart:freshCollection:${collectionId}`, {
+        collectionId,
+        createdAt: new Date().toISOString(),
+        status: 'discovering',
+        candidates: [],
+        pagesScanned: 0,
+      }, { ex: config.runTtlSeconds });
     }
     const requestedWindow = Number.parseInt(input.window, 10);
     const explicitWindow = Number.isInteger(requestedWindow);
@@ -376,7 +402,8 @@ export default async function handler(request, response) {
   } catch (error) {
     if (activeCollectionId) {
       const lockOwner = await redis.get('walmart:freshCollection:active').catch(() => null);
-      if (lockOwner === activeCollectionId && !isRetryableProviderError(error)) {
+      if (lockOwner === activeCollectionId
+        && (!isRetryableProviderError(error) || !continuingCollectionRequest)) {
         await redis.del('walmart:freshCollection:active').catch(() => {});
       }
     }
