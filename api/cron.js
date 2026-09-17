@@ -104,8 +104,13 @@ export default async function handler(request, response) {
         // Recover from an interrupted discovery request that left only the
         // global lock behind. A real active collection always has a state
         // record, so an owner without one cannot be resumed.
-        if (existingCollectionId && !existingCollection) {
+        const discoveringSince = Date.parse(existingCollection?.createdAt || '');
+        const staleDiscovery = existingCollection?.status === 'discovering'
+          && Number.isFinite(discoveringSince)
+          && Date.now() - discoveringSince > 3 * 60 * 1000;
+        if (existingCollectionId && (!existingCollection || staleDiscovery)) {
           await redis.del('walmart:freshCollection:active');
+          if (staleDiscovery) await redis.del(`walmart:freshCollection:${existingCollectionId}`);
           claimed = await redis.set('walmart:freshCollection:active', collectionId, {
             nx: true, ex: config.runTtlSeconds,
           });
@@ -131,9 +136,16 @@ export default async function handler(request, response) {
     const requestedWindow = Number.parseInt(input.window, 10);
     const explicitWindow = Number.isInteger(requestedWindow);
     const sourceWindow = explicitWindow ? Math.max(0, requestedWindow) : dailyWalmartWindow();
+    // ScrapingAnt's prototype plan permits one request at a time and a blocked
+    // Walmart page can use both a 30s static attempt and a 60s browser retry.
+    // Fetch one discovery page per serverless invocation so Vercel can persist
+    // progress and queue the next page before its 120s ceiling.
+    const discoveryPagesPerRequest = config.scrapingAntApiKey
+      ? 1
+      : config.walmartPagesPerRun;
     const sourceUrls = sourceFocus
-      ? walmartUrlsForFocus(sourceFocus, sourceWindow, config.walmartPagesPerRun)
-      : walmartUrlsForWindow(sourceWindow, config.walmartPagesPerRun);
+      ? walmartUrlsForFocus(sourceFocus, sourceWindow, discoveryPagesPerRequest)
+      : walmartUrlsForWindow(sourceWindow, discoveryPagesPerRequest);
     const discoveryPoolLimit = Math.min(
       config.maxCandidates,
       candidateLimit * config.walmartDiscoveryMultiplier,
