@@ -247,6 +247,7 @@ function renderRuns(runs) {
       <div class="progress-track"><div class="progress-fill" style="width:${percent}%"></div></div>
       <div class="run-stats"><span><b>${run.completedJobs}/${run.totalJobs}</b> analyzed</span><span><b>${run.qualifiedDeals}</b> qualified</span><span><b>${run.analysisErrors}</b> errors</span><span><b>${deliveries}</b> delivered</span></div>
       <div class="run-outcome">${escapeHtml(outcomeLabels[run.outcome] || run.outcome || 'Processing')}</div>
+      ${run.cancellation?.message ? `<div class="metric-detail">${escapeHtml(run.cancellation.message)} · ${Number(run.cancellation.incompleteJobs || 0)} unfinished jobs</div>` : ''}
       <div class="funnel-grid">${funnelItems.map(([label, value]) => `<span><b>${value === null || value === undefined ? '—' : Number(value)}</b><small>${label}</small></span>`).join('')}</div>
       ${rejectionSummary ? `<div class="metric-detail">Rejected: ${escapeHtml(rejectionSummary)}</div>` : ''}
       ${run.sourcing ? `<div class="metric-detail">Sources: ${(run.sourcing.sourceUrls || []).length} · Discovery pool: up to ${Number(run.sourcing.discoveryPoolLimit || 0)} · ${Number(run.sourcing.excludedNoDealSignal || 0)} non-deals removed · ${Number(run.sourcing.excludedWalmartBrands || 0)} blocked-brand exclusions · ${Number(run.sourcing.excludedBuyCost || 0)} over buy-cost limit · ${Number(run.sourcing.notSelectedAfterLimit || 0)} fresh candidates held for a future run</div>` : ''}
@@ -279,6 +280,10 @@ async function loadDashboard() {
     $('#keepaDetail').textContent = `${data.keepa.refillRate} token/minute refill`;
     renderStudents(data.students || []);
     renderRuns(data.runs || []);
+    if (data.sourcingHealth?.status === 'failed') showNotice(`Last sourcing attempt failed: ${data.sourcingHealth.message}`, true);
+    else if ((data.scraperHealth || []).some((provider) => provider.blocked)) {
+      showNotice(`Scraper attention needed: ${data.scraperHealth.filter((p) => p.blocked).map((p) => `${p.provider}: ${p.reason}`).join('; ')}`, true);
+    }
     loginError.textContent = '';
   } catch (error) {
     if (dashboardView.classList.contains('hidden')) loginError.textContent = error.message;

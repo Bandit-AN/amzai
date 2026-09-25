@@ -118,13 +118,10 @@ export default async function handler(request, response) {
     }
     await markCandidatesAnalyzed(analyzedCandidates);
 
-    const firstCompletion = await redis.set(completionKey, true, { nx: true, ex: config.runTtlSeconds });
-    let completedChunks = null;
-    if (firstCompletion) {
-      completedChunks = await redis.incr(`run:${runId}:completedChunks`);
-      const meta = await redis.get(`run:${runId}:meta`);
-      await advanceRun(runId, completedChunks, meta);
-    }
+    const completedChunks = await redis.completeChunk(runId, chunkIndex);
+    await redis.set(`run:${runId}:lastProgress`, new Date().toISOString(), { ex: config.runTtlSeconds });
+    const meta = await redis.get(`run:${runId}:meta`);
+    await advanceRun(runId, completedChunks, meta);
     await redis.del(processingKey()).catch(() => {});
     return jsonResponse(response, 200, {
       ok: true,

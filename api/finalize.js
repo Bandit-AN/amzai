@@ -27,6 +27,11 @@ export default async function handler(request, response) {
 
     const meta = await redis.get(`run:${runId}:meta`);
     if (!meta) throw new Error('Run metadata was not found or expired');
+    const completed = Number(await redis.get(`run:${runId}:completedChunks`) || 0);
+    if (completed < Number(meta.totalChunks)) {
+      await redis.del(lockKey());
+      return jsonResponse(response, 409, { ok: false, error: 'Run is not complete', completed, total: meta.totalChunks });
+    }
     const rawDeals = await redis.lrange(`run:${runId}:qualified`, 0, -1);
     const analysisErrors = await redis.lrange(`run:${runId}:errors`, 0, -1);
     if (meta.auditMode) {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recoverRun } from '../lib/run-recovery.js';
 
 import {
   analysisDelaySeconds,
@@ -40,6 +41,12 @@ export default async function handler(request, response) {
 
   try {
     const input = request.method === 'POST' ? await readJsonBody(request) : (request.query || {});
+    if (input.task === 'recover') {
+      const ids = await redis.lrange('runs:recent', 0, 9);
+      const results = [];
+      for (const runId of ids) results.push({ runId, ...await recoverRun({ redis, runId, config, publish: publishMessage }) });
+      return jsonResponse(response, 200, { ok: true, results });
+    }
     requireEnvironment([
       'WALMART_TARGET_URLS', 'AIRTABLE_PAT',
       'AIRTABLE_BASE_ID', 'QSTASH_TOKEN', 'UPSTASH_REDIS_REST_URL',
@@ -50,6 +57,9 @@ export default async function handler(request, response) {
     }
     const recentRunIds = await redis.lrange('runs:recent', 0, 4);
     for (const recentRunId of recentRunIds) {
+      const recovery = await recoverRun({ redis, runId: recentRunId, config, publish: publishMessage });
+      if (recovery.recovered) console.log(JSON.stringify({ event: 'stalled_run_recovered', runId: recentRunId }));
+      if (!recovery.active) continue;
       const recentRun = await getRunSummary(recentRunId);
       if (recentRun?.status === 'analyzing') {
         return jsonResponse(response, 409, {
@@ -61,6 +71,7 @@ export default async function handler(request, response) {
         });
       }
     }
+    await redis.set('sourcing:lastAttempt', { at: new Date().toISOString(), status: 'discovering' });
     // Walmart production runs are fixed-size cohorts. A partial cohort is not
     // launched: discovery must supply 100 fresh, cheaply eligible products
     // before any detail/Keepa work begins.
@@ -375,6 +386,7 @@ export default async function handler(request, response) {
       delaySeconds: chunkIndex * config.walmartDetailJobSpacingSeconds,
     })));
     console.log(JSON.stringify({ event: 'run_queued', runId, students: students.length, candidates: candidates.length, chunks: chunks.length }));
+    await redis.set('sourcing:lastAttempt', { at: new Date().toISOString(), status: 'queued', runId, jobs: chunks.length });
     return jsonResponse(response, 202, {
       ok: true,
       runId,
@@ -420,6 +432,8 @@ export default async function handler(request, response) {
       }
     }
     console.error(JSON.stringify({ event: 'cron_failed', message: error.message }));
+    await redis.set('sourcing:lastAttempt', { at: new Date().toISOString(), status: 'failed',
+      message: error.message }).catch(() => {});
     return jsonResponse(response, 500, { ok: false, error: error.message });
   }
 }

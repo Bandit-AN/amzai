@@ -6,6 +6,7 @@ import {
   getRunSummary,
   jsonResponse,
   redis,
+  scraperHealth,
 } from '../lib/platform.js';
 
 export default async function handler(request, response) {
@@ -33,6 +34,9 @@ export default async function handler(request, response) {
       })),
       schedule: { cron: '0 13 * * *', timezone: 'UTC', pacific: '5–6 AM' },
       runs,
+      scraperHealth: await scraperHealth(),
+      sourcingHealth: await redis.get('sourcing:lastAttempt'),
+      storefrontDispatch: await redis.get('storefront:lastDispatch'),
     });
   } catch (error) {
     return jsonResponse(response, 500, { ok: false, error: error.message });

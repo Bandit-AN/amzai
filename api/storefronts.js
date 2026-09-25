@@ -1,26 +1,25 @@
 import axios from 'axios';
+import { randomUUID } from 'node:crypto';
+import { processStorefront } from '../lib/storefront-delivery.js';
 
 import { handleOrderTrackingCron } from '../lib/order-tracking.js';
 
 import {
-  bestWalmartMatchForAmazonProduct,
+  cachedValue,
   config,
-  enrichWalmartCandidate,
   fetchActiveStudents,
   fetchPortalStudentByEmail,
   fetchSellerStorefrontAsins,
-  fetchWalmartCatalog,
   hydrateKeepaProductsByAsin,
   isBlockedStorefrontBrand,
-  isRetryableProviderError,
   jsonResponse,
+  publishBatch,
+  publishMessage,
   readJsonBody,
   readPortalIdentity,
   redis,
   requireEnvironment,
   storefrontDiscordPayloads,
-  verifyExactProductMatch,
-  walmartSearchUrl,
   workerAuthorized,
 } from '../lib/platform.js';
 
@@ -29,7 +28,9 @@ const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mill
 async function postDiscord(webhook, payload) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      return await axios.post(webhook, payload, { timeout: config.requestTimeoutMs });
+      const url = new URL(webhook);
+      url.searchParams.set('wait', 'true');
+      return await axios.post(url.toString(), payload, { timeout: config.requestTimeoutMs });
     } catch (error) {
       if (error.response?.status !== 429 || attempt === 4) throw error;
       const retryAfterSeconds = Number(error.response?.data?.retry_after || 1);
@@ -140,7 +141,8 @@ async function configuredStorefronts() {
       const student = byEmail.get(String(row.owner_email || '').trim().toLowerCase());
       if (!student) continue;
       tracked.push({
-        ownerKey: row.user_id,
+        ownerKey: student.id,
+        legacyOwnerKey: row.user_id || student.id,
         ownerEmail: row.owner_email,
         sellerId: row.seller_id,
         label: row.label || row.seller_id,
@@ -152,38 +154,6 @@ async function configuredStorefronts() {
     tracked.push({ ...entry, ownerKey: 'legacy', webhook: config.storefrontDiscordWebhookUrl });
   }
   return tracked;
-}
-
-function amazonImageUrl(product) {
-  const firstImage = String(product.imagesCSV || '').split(',')[0]?.trim();
-  return firstImage ? `https://m.media-amazon.com/images/I/${firstImage}` : null;
-}
-
-function amazonPriceDollars(product) {
-  const current = product.stats?.current || [];
-  const cents = [product.stats?.buyBoxPrice, current[18], current[10], current[1], current[0]]
-    .find((value) => Number.isFinite(value) && value > 0);
-  return Number.isFinite(cents) ? cents / 100 : null;
-}
-
-// Only the top few search results get the expensive per-item detail-page
-// re-fetch (search cards don't carry a UPC, only detail pages do) — Walmart's
-// own search relevance ranking is the filter that keeps this bounded.
-async function findWalmartMatch(product) {
-  const searchTerm = product.title ? product.title.split(' ').slice(0, 8).join(' ') : product.asin;
-  const rawCandidates = await fetchWalmartCatalog(20, [walmartSearchUrl(searchTerm)]);
-  const enriched = [];
-  for (const candidate of rawCandidates.slice(0, 3)) {
-    const detail = await enrichWalmartCandidate(candidate);
-    if (detail.detailVerified && detail.upc) enriched.push(detail);
-  }
-  const best = bestWalmartMatchForAmazonProduct(product, enriched);
-  if (!best) return null;
-  if (best.roi < config.minimumRoi) return null;
-  if (best.estimatedProfit <= config.minimumEstimatedProfit) return null;
-  if (best.estimatedMonthlySales < config.minimumMonthlySales) return null;
-  const verification = await verifyExactProductMatch(best, best);
-  return verification.exactMatch ? best : null;
 }
 
 export default async function handler(request, response) {
@@ -208,82 +178,49 @@ export default async function handler(request, response) {
     if (trackedStorefronts.length === 0) {
       return jsonResponse(response, 200, { ok: true, skipped: true, reason: 'No student storefronts configured' });
     }
-    if (!config.scraperApiKey && !config.walmartScraperApiKey && !config.scrapingAntApiKey) {
-      throw new Error('A Walmart scraper provider is required to search for matches');
+    const input = request.method === 'POST' ? await readJsonBody(request) : request.query || {};
+    const tracked = [...new Map(trackedStorefronts.map((store) => [`${store.ownerKey}:${store.sellerId}`, store])).values()];
+    // Authenticated, read-only status: never returns a webhook or credential.
+    if (input.task === 'health') {
+      const states = await redis.mget(tracked.map((store) => `storefront:state:${store.ownerKey}:${store.sellerId}`));
+      return jsonResponse(response, 200, { ok: true, dispatch: await redis.get('storefront:lastDispatch'),
+        sellers: tracked.map((store, i) => ({ sellerId: store.sellerId, label: store.label,
+          webhookConfigured: Boolean(store.webhook), status: states[i]?.status || 'not_checked_by_new_worker',
+          checkedAt: states[i]?.checkedAt, pending: states[i]?.pending?.length || 0,
+          delivered: states[i]?.delivered || 0, error: states[i]?.error || null,
+          lastDeliveryAt: states[i]?.lastDelivery?.at })) });
     }
-
-    const sellers = [];
-    const sellerCache = new Map();
-    for (const { sellerId, label, ownerKey, ownerEmail, webhook } of trackedStorefronts) {
-      if (!webhook) {
-        sellers.push({ sellerId, label, ownerEmail, error: 'Student Discord webhook is not configured' });
-        continue;
+    requireEnvironment(['QSTASH_TOKEN', 'PUBLIC_BASE_URL', 'WORKER_SECRET']);
+    if (input.task === 'store') {
+      // Resolve the subscription again, so deletion/revocation stops queued work
+      // and webhook credentials never need to travel through the queue.
+      const store = tracked.find((entry) => entry.ownerKey === input.ownerKey && entry.sellerId === input.sellerId);
+      if (!store) return jsonResponse(response, 200, { ok: true, removed: true });
+      if (!store.webhook) throw new Error('Storefront Discord webhook is not configured');
+      const result = await processStorefront({ store, redis,
+        fetchSeller: (sellerId) => cachedValue(`storefront:snapshot:${sellerId}`, 300, () => fetchSellerStorefrontAsins(sellerId)),
+        hydrate: hydrateKeepaProductsByAsin, blocked: isBlockedStorefrontBrand,
+        payloads: storefrontDiscordPayloads, send: postDiscord, ttl: config.productCooldownSeconds * 12 });
+      // Bound each daily subscription cycle to the existing configured allowance.
+      // Excess remains durable for tomorrow rather than being marked away.
+      const remaining = Math.max(0, Math.min(25, Number(input.batchesLeft) || 0) - 1);
+      if (result.pending > 0 && result.status === 'pending' && remaining > 0) {
+        await publishMessage({ url: `${config.publicBaseUrl}/api/storefronts`,
+          body: { task: 'store', ownerKey: store.ownerKey, sellerId: store.sellerId, cycle: input.cycle, batchesLeft: remaining },
+          deduplicationId: `storefront-${store.ownerKey}-${store.sellerId}-${input.cycle || 'retry'}-${remaining}`,
+          delaySeconds: 60 });
       }
-      if (!sellerCache.has(sellerId)) sellerCache.set(sellerId, await fetchSellerStorefrontAsins(sellerId));
-      const seller = sellerCache.get(sellerId);
-      if (!seller) {
-        sellers.push({ sellerId, label, error: 'Seller not found or has no storefront data' });
-        continue;
-      }
-      const seenKey = `storefront:seen:${ownerKey}:${sellerId}`;
-      const previouslySeen = new Set(await redis.get(seenKey) || []);
-      const isFirstRun = previouslySeen.size === 0;
-      const newAsins = seller.asinList.filter((asin) => !previouslySeen.has(asin));
-      // Persist the full current catalog regardless, so the next run's diff
-      // reflects what's really there even when nothing new was found today.
-      await redis.set(seenKey, seller.asinList, { ex: config.productCooldownSeconds * 12 });
-
-      if (isFirstRun) {
-        // A brand-new tracked seller's entire existing catalog would all
-        // read as "new" — baseline it instead of alerting on all of it.
-        sellers.push({
-          sellerId, label, sellerName: seller.sellerName, baseline: true, catalogSize: seller.asinList.length,
-        });
-        continue;
-      }
-      if (newAsins.length === 0) {
-        sellers.push({ sellerId, label, sellerName: seller.sellerName, newListings: 0 });
-        continue;
-      }
-
-      const toCheck = newAsins.slice(0, config.storefrontNewListingsPerRunLimit);
-      const hydrated = await hydrateKeepaProductsByAsin(toCheck);
-      const blockedCount = hydrated.filter(isBlockedStorefrontBrand).length;
-      const products = hydrated.filter((product) => !isBlockedStorefrontBrand(product));
-      const newListings = [];
-      for (const product of products) {
-        let walmartMatch = null;
-        try {
-          walmartMatch = await findWalmartMatch(product);
-        } catch (error) {
-          if (isRetryableProviderError(error)) throw error;
-          console.error(JSON.stringify({
-            event: 'storefront_walmart_search_failed', sellerId, asin: product.asin, message: error.message,
-          }));
-        }
-        newListings.push({
-          asin: product.asin,
-          amazonTitle: product.title || product.asin,
-          amazonUrl: `https://www.amazon.com/dp/${product.asin}`,
-          amazonPrice: amazonPriceDollars(product),
-          imageUrl: amazonImageUrl(product),
-          walmartMatch,
-        });
-      }
-
-      const payloads = storefrontDiscordPayloads(seller.sellerName || label, newListings);
-      for (const payload of payloads) await postDiscord(webhook, payload);
-
-      sellers.push({
-        sellerId,
-        label,
-        sellerName: seller.sellerName,
-        newListings: newListings.length,
-        qualifiedMatches: newListings.filter((listing) => listing.walmartMatch).length,
-        blockedBrandListings: blockedCount,
-      });
+      return jsonResponse(response, 200, { ok: true, ...result });
     }
-    return jsonResponse(response, 200, { ok: true, sellers });
+    const cycle = randomUUID();
+    await publishBatch(tracked.filter((store) => store.webhook).map((store, index) => ({
+      url: `${config.publicBaseUrl}/api/storefronts`,
+      body: { task: 'store', ownerKey: store.ownerKey, sellerId: store.sellerId, cycle,
+        batchesLeft: Math.max(1, Math.ceil(config.storefrontNewListingsPerRunLimit / 4)) },
+      deduplicationId: `storefront-${cycle}-${store.ownerKey}-${store.sellerId}`, delaySeconds: index * 60,
+    })));
+    await redis.set('storefront:lastDispatch', { at: new Date().toISOString(), queued: tracked.filter((s) => s.webhook).length });
+    return jsonResponse(response, 202, { ok: true, queued: tracked.filter((s) => s.webhook).length });
   } catch (error) {
     console.error(JSON.stringify({ event: 'storefronts_failed', message: error.message }));
     return jsonResponse(response, 500, { ok: false, error: error.message });

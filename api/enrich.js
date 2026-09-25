@@ -22,12 +22,8 @@ const finalizeJob = (runId) => ({
 });
 
 async function completeCandidate(runId, chunkIndex, meta) {
-  const first = await redis.set(
-    `run:${runId}:chunk:${chunkIndex}:complete`, true,
-    { nx: true, ex: config.runTtlSeconds },
-  );
-  if (!first) return null;
-  const completed = await redis.incr(`run:${runId}:completedChunks`);
+  const completed = await redis.completeChunk(runId, chunkIndex);
+  await redis.set(`run:${runId}:lastProgress`, new Date().toISOString(), { ex: config.runTtlSeconds });
   if (completed >= Number(meta.totalChunks)) await publishMessage(finalizeJob(runId));
   return completed;
 }
@@ -50,6 +46,13 @@ export default async function handler(request, response) {
       return jsonResponse(response, 200, { ok: true, cancelled: true });
     }
     if (await redis.get(`run:${runId}:chunk:${chunkIndex}:enrichmentComplete`)) {
+      // If publication failed after committing completion, a retry must still
+      // advance finalization instead of acknowledging and losing the handoff.
+      const [done, storedMeta, manual, failed] = await redis.mget([
+        `run:${runId}:chunk:${chunkIndex}:complete`, `run:${runId}:meta`,
+        `run:${runId}:chunk:${chunkIndex}:manualRecorded`, `run:${runId}:chunk:${chunkIndex}:enrichmentErrorRecorded`,
+      ]);
+      if ((done || manual || failed) && storedMeta) await completeCandidate(runId, chunkIndex, storedMeta);
       return jsonResponse(response, 200, { ok: true, duplicate: true });
     }
 
@@ -153,6 +156,7 @@ export default async function handler(request, response) {
       `run:${runId}:chunk:${chunkIndex}:enrichmentComplete`, true,
       { ex: config.runTtlSeconds },
     );
+    await redis.set(`run:${runId}:lastProgress`, new Date().toISOString(), { ex: config.runTtlSeconds });
     return jsonResponse(response, 202, { ok: true, runId, chunkIndex, queuedForAnalysis: true });
   } catch (error) {
     if (isRetryableProviderError(error)) throw sanitizedRetryError(error, 'Retailer detail lookup');
