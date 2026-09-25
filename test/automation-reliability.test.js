@@ -75,6 +75,18 @@ test('missing hydration records do not silently discard new ASINs', async () => 
   await assert.rejects(processStorefront(options));
   assert.deepEqual((await redis.get(key)).pending, ['new']);
 });
+test('retry of a completed queue job does not consume another backlog chunk', async () => {
+  const { options, sent } = fixture();
+  await processStorefront(options);
+  options.fetchSeller = async () => ({ asinList: ['old', 'a', 'b', 'c', 'd', 'e'] });
+  options.jobId = 'cycle:5';
+  assert.equal((await processStorefront(options)).pending, 1);
+  assert.equal((await processStorefront(options)).pending, 1);
+  assert.equal(sent.length, 1);
+  options.jobId = 'cycle:4';
+  assert.equal((await processStorefront(options)).pending, 0);
+  assert.equal(sent.length, 2);
+});
 test('stale recovery cancels incomplete run honestly and unblocks tomorrow', async () => {
   const redis = memory();
   const meta = { createdAt: '2026-09-18T00:00:00Z', totalChunks: 3, keepaTokensPerMinute: 20 };

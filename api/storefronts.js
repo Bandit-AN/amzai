@@ -179,7 +179,14 @@ export default async function handler(request, response) {
       return jsonResponse(response, 200, { ok: true, skipped: true, reason: 'No student storefronts configured' });
     }
     const input = request.method === 'POST' ? await readJsonBody(request) : request.query || {};
-    const tracked = [...new Map(trackedStorefronts.map((store) => [`${store.ownerKey}:${store.sellerId}`, store])).values()];
+    const destinations = new Map();
+    for (const store of trackedStorefronts) {
+      const destination = `${store.webhook || store.ownerKey}:${store.sellerId}`;
+      // A legacy config and a student subscription can target the same channel.
+      // Favor the student entry and send just one alert to that destination.
+      if (!destinations.has(destination)) destinations.set(destination, store);
+    }
+    const tracked = [...destinations.values()];
     // Authenticated, read-only status: never returns a webhook or credential.
     if (input.task === 'health') {
       const states = await redis.mget(tracked.map((store) => `storefront:state:${store.ownerKey}:${store.sellerId}`));
@@ -198,6 +205,7 @@ export default async function handler(request, response) {
       if (!store) return jsonResponse(response, 200, { ok: true, removed: true });
       if (!store.webhook) throw new Error('Storefront Discord webhook is not configured');
       const result = await processStorefront({ store, redis,
+        jobId: input.cycle ? `${input.cycle}:${input.batchesLeft}` : undefined,
         fetchSeller: (sellerId) => cachedValue(`storefront:snapshot:${sellerId}`, 300, () => fetchSellerStorefrontAsins(sellerId)),
         hydrate: hydrateKeepaProductsByAsin, blocked: isBlockedStorefrontBrand,
         payloads: storefrontDiscordPayloads, send: postDiscord, ttl: config.productCooldownSeconds * 12 });
