@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { randomUUID } from 'node:crypto';
 import nacl from 'tweetnacl';
+import { addStorefrontOnce, commandErrorMessage, deferredCommand, storefrontListMessage } from '../lib/discord-commands.js';
 
 import {
   config as platformConfig,
@@ -16,7 +17,7 @@ export const config = { api: { bodyParser: false } };
 
 const EPHEMERAL = 64;
 const discordResponse = (response, body) => jsonResponse(response, 200, body);
-const message = (content) => ({ type: 4, data: { content, flags: EPHEMERAL } });
+const message = (content) => ({ type: 4, data: { content, flags: EPHEMERAL, allowed_mentions: { parse: [] } } });
 const apiHeaders = () => ({ Authorization: `Bot ${platformConfig.discordBotToken}`, 'Content-Type': 'application/json' });
 
 async function rawBody(request) {
@@ -220,12 +221,23 @@ async function handleCommand(interaction) {
   if (command === 'add') {
     const sellerId = sellerIdFrom(option(interaction, 'storefront'));
     const label = String(option(interaction, 'name') || '').trim().slice(0, 80);
-    await axios.post(storefrontUrl(), [{
-      airtable_student_id: student.id,
-      owner_email: student.email,
-      seller_id: sellerId,
-      label,
-    }], { headers: { ...supabaseAdminHeaders(), Prefer: 'resolution=ignore-duplicates,return=representation' }, timeout: platformConfig.requestTimeoutMs });
+    const result = await addStorefrontOnce({
+      find: async () => {
+        const response = await axios.get(storefrontUrl(), {
+          headers: supabaseAdminHeaders(),
+          params: { select: 'id,seller_id,label', airtable_student_id: `eq.${student.id}`, seller_id: `eq.${sellerId}`, limit: 1 },
+          timeout: platformConfig.requestTimeoutMs,
+        });
+        return response.data?.[0] || null;
+      },
+      insert: async () => {
+        const response = await axios.post(storefrontUrl(), [{
+          airtable_student_id: student.id, owner_email: student.email, seller_id: sellerId, label,
+        }], { headers: { ...supabaseAdminHeaders(), Prefer: 'return=representation' }, timeout: platformConfig.requestTimeoutMs });
+        return response.data?.[0];
+      },
+    });
+    if (!result.added) return message(`✅ You're already tracking **${result.storefront.label || sellerId}** (${sellerId}). Use \`/viewlist\` to see your saved storefronts.`);
     return message(`✅ Now tracking **${label || sellerId}** (${sellerId}). The first tracker check creates a baseline; later new listings will alert this channel.`);
   }
   if (command === 'remove') {
@@ -239,9 +251,7 @@ async function handleCommand(interaction) {
   }
   if (command === 'viewlist') {
     const stores = await listStorefronts(student);
-    if (!stores.length) return message('You are not tracking any storefronts yet. Use `/add`.');
-    const rows = stores.slice(0, 50).map((store, index) => `${index + 1}. **${store.label || store.seller_id}**\n   ${store.seller_id}`);
-    return message(`**Your tracked storefronts (${stores.length})**\n\n${rows.join('\n')}`);
+    return message(storefrontListMessage(stores));
   }
   return message('**Buy Box Bandit commands**\n`/setup` create or connect your account\n`/add` track a storefront\n`/remove` stop tracking a storefront\n`/viewlist` see your tracked storefronts');
 }
@@ -262,14 +272,31 @@ export default async function handler(request, response) {
   try {
     const interaction = JSON.parse(body.toString('utf8'));
     if (interaction.type === 1) return discordResponse(response, { type: 1 });
-    if (interaction.type === 5 && interaction.data?.custom_id === 'student_setup') {
-      return discordResponse(response, await completeSetup(interaction));
+    const setupSubmission = interaction.type === 5 && interaction.data?.custom_id === 'student_setup';
+    // /setup opens a modal synchronously; all database-backed commands and
+    // modal submissions acknowledge first through Discord's callback API.
+    // Keep this invocation alive until the original private reply is edited.
+    if (setupSubmission || (interaction.type === 2 && interaction.data?.name !== 'setup')) {
+      await deferredCommand({
+        acknowledge: () => axios.post(
+          `https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`,
+          { type: 5, data: { flags: EPHEMERAL } }, { timeout: 2500 },
+        ),
+        work: () => setupSubmission ? completeSetup(interaction) : handleCommand(interaction),
+        edit: (data) => axios.patch(
+          `https://discord.com/api/v10/webhooks/${platformConfig.discordApplicationId}/${interaction.token}/messages/@original`,
+          data, { timeout: 8000 },
+        ),
+        log: (event, error) => console.error(JSON.stringify({ event, command: interaction.data?.name,
+          status: error.response?.status, code: error.response?.data?.code || error.code })),
+      });
+      response.statusCode = 202;
+      return response.end();
     }
     if (interaction.type === 2) return discordResponse(response, await handleCommand(interaction));
     return discordResponse(response, message('Unsupported interaction.'));
   } catch (error) {
-    const detail = error.response?.data?.error?.message || error.response?.data?.message || error.message;
-    console.error(JSON.stringify({ event: 'discord_interaction_failed', message: detail }));
-    return discordResponse(response, message(`Could not complete that command: ${detail}`));
+    console.error(JSON.stringify({ event: 'discord_interaction_failed', status: error.response?.status, code: error.code }));
+    return discordResponse(response, message(commandErrorMessage(error)));
   }
 }
