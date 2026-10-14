@@ -10,12 +10,13 @@ process.env.DISCORD_APPLICATION_ID = 'test-app';
 process.env.DISCORD_GUILD_ID = 'test-guild';
 process.env.DISCORD_STUDENT_ROLE_ID = 'student-role';
 process.env.SUPABASE_URL = 'https://database.example';
+process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-key';
 const { default: handler } = await import('../api/discord.js');
 
 function request(name, extra = {}) {
   const body = Buffer.from(JSON.stringify({ id: 'interaction', token: 'test-token', type: 2,
     guild_id: 'test-guild', channel_id: 'private', member: { user: { id: 'student' }, roles: ['student-role'], permissions: '0' },
-    data: { name, options: [{ name: 'storefront', value: 'SELLER123' }] }, ...extra }));
+    data: { name, options: [{ name: 'storefront', value: 'A2UCDC7R7NY4ET' }] }, ...extra }));
   const timestamp = String(Math.floor(Date.now() / 1000));
   return { method: 'POST', body, headers: { 'x-signature-timestamp': timestamp,
     'x-signature-ed25519': Buffer.from(nacl.sign.detached(Buffer.concat([Buffer.from(timestamp), body]), keys.secretKey)).toString('hex') } };
@@ -30,14 +31,15 @@ function backend(t, { rows = [], channel = 'private' } = {}) {
     events.push('insert');
     assert.equal(data[0].airtable_student_id, 'record-1');
     assert.equal(data[0].owner_email, 'student@example.com');
-    assert.equal(data[0].seller_id, 'SELLER123');
+    assert.equal(data[0].seller_id, 'A2UCDC7R7NY4ET');
     return { data: [{ ...data[0], id: 'new' }] };
   });
   t.mock.method(axios, 'get', async (url, options) => {
     assert.equal(events[0], 'ack');
     if (url.includes('airtable.com')) { events.push('student'); return { data: { records: [{ id: 'record-1', fields: { Email: 'Student@Example.com', Status: 'Active', 'Discord User ID': 'student', 'Discord Channel ID': channel } }] } }; }
-    events.push('stores'); assert.equal(options.params.airtable_student_id, 'eq.record-1');
-    if (options.params.limit) assert.equal(options.params.seller_id, 'eq.SELLER123');
+    events.push('stores'); assert.match(options.params.or, /airtable_student_id.eq."record-1"/);
+    assert.match(options.params.or, /airtable_student_id.is.null/);
+    if (options.params.limit) assert.equal(options.params.seller_id, 'eq.A2UCDC7R7NY4ET');
     return { data: rows };
   });
   t.mock.method(axios, 'patch', async (url, data) => {
@@ -46,7 +48,7 @@ function backend(t, { rows = [], channel = 'private' } = {}) {
   return { events, replies };
 }
 test('signed viewlist acknowledges before both lookups and ends HTTP 202 empty', async (t) => {
-  const { events, replies } = backend(t, { rows: [{ seller_id: 'SELLER123', label: 'Competitor' }] });
+  const { events, replies } = backend(t, { rows: [{ seller_id: 'A2UCDC7R7NY4ET', label: 'Competitor' }] });
   const res = response(); await handler(request('viewlist'), res);
   assert.deepEqual(events, ['ack', 'student', 'stores', 'edit']);
   assert.match(replies[0].content, /Competitor/);

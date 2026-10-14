@@ -770,19 +770,20 @@ $('#preferencesForm').addEventListener('submit', async (event) => {
 
 $('#storefrontForm').addEventListener('submit', async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   const message = $('#storefrontMessage');
   message.textContent = 'Adding…';
   try {
     if (!supabaseAccessToken) throw new Error('Sign in with Google to manage storefronts');
-    await studentApi('/api/storefronts', {
+    const result = await studentApi('/api/storefronts', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sellerId: $('#storefrontSellerInput').value,
         label: $('#storefrontLabelInput').value,
       }),
     });
-    event.currentTarget.reset();
-    message.textContent = 'Storefront added. The first daily check creates its baseline.';
+    form.reset();
+    message.textContent = result.alreadyTracked ? 'You are already tracking this storefront.' : 'Storefront added. The first daily check creates its baseline.';
     await loadStorefronts();
   } catch (error) { message.textContent = error.message; }
 });

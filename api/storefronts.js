@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { randomUUID } from 'node:crypto';
 import { processStorefront } from '../lib/storefront-delivery.js';
+import { parseSellerId, storefrontRecords, validSellerId, visibleStorefronts } from '../lib/storefront-records.js';
 
 import { handleOrderTrackingCron } from '../lib/order-tracking.js';
 
@@ -41,84 +42,35 @@ async function postDiscord(webhook, payload) {
 }
 
 const storefrontTableUrl = () => `${config.supabaseUrl}/rest/v1/student_storefronts`;
-const bearerToken = (request) => String(request.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-const supabaseHeaders = (token) => ({
-  apikey: config.supabaseAnonKey,
-  Authorization: `Bearer ${token}`,
-  'Content-Type': 'application/json',
-});
-
-function normalizedSellerId(value) {
-  const raw = String(value || '').trim();
-  let candidate = raw;
-  try {
-    const url = new URL(raw);
-    candidate = url.searchParams.get('seller') || url.searchParams.get('me') || url.pathname.split('/').filter(Boolean).at(-1) || '';
-  } catch {}
-  candidate = candidate.trim().toUpperCase();
-  if (!/^[A-Z0-9]{6,32}$/.test(candidate)) {
-    throw new Error('Enter a valid Amazon seller ID or storefront URL containing seller=');
-  }
-  return candidate;
-}
+const stores = storefrontRecords(config);
 
 async function handleStudentStorefronts(request, response, identity) {
   if (identity.type !== 'supabase') {
     return jsonResponse(response, 403, { error: 'Sign in with Google to manage storefronts' });
   }
-  const token = bearerToken(request);
-  const headers = supabaseHeaders(token);
   const student = await fetchPortalStudentByEmail(identity.email);
   if (!student) return jsonResponse(response, 403, { error: 'This Google email is not an active Seller Syndicate student' });
-  // A student may enroll and add stores in Discord before their first portal
-  // login. Claim those rows on first Google-authenticated portal use.
-  if (config.supabaseServiceRoleKey) {
-    await axios.patch(storefrontTableUrl(), {
-      user_id: identity.userId,
-      airtable_student_id: student.id,
-    }, {
-      headers: {
-        apikey: config.supabaseServiceRoleKey,
-        Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
-        'Content-Type': 'application/json',
-      },
-      params: { owner_email: `eq.${identity.email}`, user_id: 'is.null' },
-      timeout: config.requestTimeoutMs,
-    });
-  }
+  // The verified Google email resolves the same student identity as Discord.
+  // Server-side owner filters replace bulk row claiming, which could collide
+  // with existing portal rows and make the whole list inaccessible.
   if (request.method === 'GET') {
-    const result = await axios.get(storefrontTableUrl(), {
-      headers,
-      params: { select: 'id,seller_id,label,created_at', order: 'created_at.desc' },
-      timeout: config.requestTimeoutMs,
-    });
-    return jsonResponse(response, 200, { ok: true, storefronts: result.data || [] });
+    const rows = visibleStorefronts(await stores.list(student));
+    return jsonResponse(response, 200, { ok: true, storefronts: rows.map(({ id, seller_id, label, created_at }) => ({ id, seller_id, label, created_at })) });
   }
   if (request.method === 'POST') {
     const body = await readJsonBody(request);
-    const sellerId = normalizedSellerId(body.sellerId || body.url);
+    const sellerId = parseSellerId(body.sellerId || body.url);
     const label = String(body.label || '').trim().slice(0, 80);
-    const result = await axios.post(storefrontTableUrl(), [{
-      user_id: identity.userId,
-      airtable_student_id: student.id,
-      owner_email: identity.email,
-      seller_id: sellerId,
-      label,
-    }], {
-      headers: { ...headers, Prefer: 'return=representation' },
-      timeout: config.requestTimeoutMs,
-    });
-    return jsonResponse(response, 201, { ok: true, storefront: result.data?.[0] });
+    const result = await stores.add(student, sellerId, label, identity.userId);
+    return jsonResponse(response, result.added ? 201 : 200, { ok: true, alreadyTracked: !result.added, storefront: result.storefront });
   }
   if (request.method === 'DELETE') {
     const body = await readJsonBody(request);
     const id = String(body.id || request.query?.id || '').trim();
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid storefront entry');
-    await axios.delete(storefrontTableUrl(), {
-      headers,
-      params: { id: `eq.${id}` },
-      timeout: config.requestTimeoutMs,
-    });
+    const row = (await stores.list(student, { id: `eq.${id}`, limit: 1 }))[0];
+    if (!row) return jsonResponse(response, 404, { error: 'Storefront was not found in your account' });
+    await stores.remove(student, { seller_id: `eq.${row.seller_id}` });
     return jsonResponse(response, 200, { ok: true });
   }
   return jsonResponse(response, 405, { error: 'Method not allowed' });
@@ -132,13 +84,16 @@ async function configuredStorefronts() {
         apikey: config.supabaseServiceRoleKey,
         Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
       },
-      params: { select: 'id,user_id,owner_email,seller_id,label' },
+      params: { select: 'id,user_id,airtable_student_id,owner_email,seller_id,label' },
       timeout: config.requestTimeoutMs,
     });
     const students = await fetchActiveStudents({ fresh: true });
     const byEmail = new Map(students.map((student) => [student.email, student]));
+    const byId = new Map(students.map((student) => [student.id, student]));
     for (const row of response.data || []) {
-      const student = byEmail.get(String(row.owner_email || '').trim().toLowerCase());
+      if (!validSellerId(row.seller_id)) continue;
+      const student = row.airtable_student_id ? byId.get(row.airtable_student_id)
+        : byEmail.get(String(row.owner_email || '').trim().toLowerCase());
       if (!student) continue;
       tracked.push({
         ownerKey: student.id,
@@ -151,9 +106,46 @@ async function configuredStorefronts() {
     }
   }
   for (const entry of config.amazonTrackedSellers) {
+    if (!validSellerId(entry.sellerId)) continue;
     tracked.push({ ...entry, ownerKey: 'legacy', webhook: config.storefrontDiscordWebhookUrl });
   }
   return tracked;
+}
+
+async function maintainStudentStorefronts(request, response, input) {
+  const root = `https://api.airtable.com/v0/${config.airtableBaseId}/${encodeURIComponent(config.airtableStudentsTable)}`;
+  const headers = { Authorization: `Bearer ${config.airtablePat}` };
+  let records;
+  if (input.studentId) {
+    if (!/^rec[A-Za-z0-9]{10,30}$/.test(input.studentId)) throw new Error('Invalid student record ID');
+    records = [(await axios.get(`${root}/${input.studentId}`, { headers, timeout: config.requestTimeoutMs })).data];
+  } else {
+    if (input.task !== 'inspect-student') throw new Error('Exact student record ID required');
+    const name = String(input.name || '').trim().toLowerCase();
+    if (!/^[a-z\s-]{2,40}$/.test(name)) throw new Error('Provide a student name');
+    records = (await axios.get(root, { headers, params: {
+      filterByFormula: `FIND('${name}',LOWER({Name}))`, pageSize: 100,
+    }, timeout: config.requestTimeoutMs })).data.records || [];
+  }
+  const results = [];
+  for (const record of records) {
+    const student = { id: record.id, email: String(record.fields?.Email || '').trim().toLowerCase() };
+    const rows = await stores.list(student);
+    if (input.task === 'quarantine-invalid') {
+      if (request.method !== 'POST') return jsonResponse(response, 405, { error: 'POST required' });
+      if (!/^[0-9a-f-]{36}$/i.test(input.rowId || '') || input.expectedSellerId !== 'LOOKUP') throw new Error('Exact invalid LOOKUP row required');
+      const row = rows.find((item) => item.id === input.rowId && item.seller_id === input.expectedSellerId);
+      if (!row) return jsonResponse(response, 404, { error: 'Invalid row was not found in this student account' });
+      const backupKey = `storefront:quarantine:${row.id}`;
+      await redis.set(backupKey, { row, reason: 'URL path LOOKUP incorrectly parsed as seller ID', at: new Date().toISOString() }, { nx: true });
+      await stores.remove(student, { id: `eq.${row.id}`, seller_id: 'eq.LOOKUP' });
+      return jsonResponse(response, 200, { ok: true, quarantined: row.id, backupKey });
+    }
+    results.push({ studentId: student.id, name: record.fields?.Name, status: record.fields?.Status,
+      rows: rows.map(({ id, seller_id, label, airtable_student_id, user_id }) => ({ id, seller_id, label,
+        invalid: !validSellerId(seller_id), canonicalStudent: airtable_student_id === student.id, portalLinked: Boolean(user_id) })) });
+  }
+  return jsonResponse(response, 200, { ok: true, students: results });
 }
 
 export default async function handler(request, response) {
@@ -169,16 +161,20 @@ export default async function handler(request, response) {
     }
   }
   const internalRequest = request.method === 'POST' && workerAuthorized(request);
-  if (!internalRequest && config.cronSecret && request.headers.authorization !== `Bearer ${config.cronSecret}`) {
+  if (!internalRequest && (!config.cronSecret || request.headers.authorization !== `Bearer ${config.cronSecret}`)) {
     return jsonResponse(response, 401, { error: 'Unauthorized' });
   }
   try {
+    const input = request.method === 'POST' ? await readJsonBody(request) : request.query || {};
+    if (['inspect-student', 'quarantine-invalid'].includes(input.task)) {
+      if (!config.cronSecret || request.headers.authorization !== `Bearer ${config.cronSecret}`) return jsonResponse(response, 403, { error: 'Admin authorization required' });
+      return await maintainStudentStorefronts(request, response, input);
+    }
     requireEnvironment(['KEEPA_API_KEY', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']);
     const trackedStorefronts = await configuredStorefronts();
     if (trackedStorefronts.length === 0) {
       return jsonResponse(response, 200, { ok: true, skipped: true, reason: 'No student storefronts configured' });
     }
-    const input = request.method === 'POST' ? await readJsonBody(request) : request.query || {};
     const destinations = new Map();
     for (const store of trackedStorefronts) {
       const destination = `${store.webhook || store.ownerKey}:${store.sellerId}`;

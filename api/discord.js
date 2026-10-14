@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { randomUUID } from 'node:crypto';
 import nacl from 'tweetnacl';
-import { addStorefrontOnce, commandErrorMessage, deferredCommand, storefrontListMessage } from '../lib/discord-commands.js';
+import { commandErrorMessage, deferredCommand, storefrontListMessage } from '../lib/discord-commands.js';
+import { parseSellerId, storefrontRecords, visibleStorefronts } from '../lib/storefront-records.js';
 
 import {
   config as platformConfig,
@@ -67,17 +68,7 @@ export function isDiscordAdministrator(interaction) {
   }
 }
 
-export function sellerIdFrom(value) {
-  const raw = String(value || '').trim();
-  let sellerId = raw;
-  try {
-    const url = new URL(raw);
-    sellerId = url.searchParams.get('seller') || url.searchParams.get('me') || '';
-  } catch {}
-  sellerId = sellerId.trim().toUpperCase();
-  if (!/^[A-Z0-9]{6,32}$/.test(sellerId)) throw new Error('Enter a valid Amazon seller ID or a storefront URL containing `seller=`.');
-  return sellerId;
-}
+export const sellerIdFrom = parseSellerId;
 
 async function enrolledStudent(interaction) {
   const student = await fetchDiscordStudent({ userId: interaction.member?.user?.id || interaction.user?.id });
@@ -88,12 +79,7 @@ async function enrolledStudent(interaction) {
   return student;
 }
 
-const supabaseAdminHeaders = () => ({
-  apikey: platformConfig.supabaseServiceRoleKey,
-  Authorization: `Bearer ${platformConfig.supabaseServiceRoleKey}`,
-  'Content-Type': 'application/json',
-});
-const storefrontUrl = () => `${platformConfig.supabaseUrl}/rest/v1/student_storefronts`;
+const stores = storefrontRecords(platformConfig);
 const discordCommands = [
   { name: 'setup', description: 'Create or connect your Buy Box Bandit student account' },
   { name: 'add', description: 'Track an Amazon competitor storefront', options: [
@@ -129,12 +115,7 @@ async function registerCommands(response) {
 }
 
 async function listStorefronts(student) {
-  const response = await axios.get(storefrontUrl(), {
-    headers: supabaseAdminHeaders(),
-    params: { select: 'id,seller_id,label,created_at', airtable_student_id: `eq.${student.id}`, order: 'created_at.asc' },
-    timeout: platformConfig.requestTimeoutMs,
-  });
-  return response.data || [];
+  return visibleStorefronts(await stores.list(student));
 }
 
 async function createChannelWebhook(channelId) {
@@ -221,32 +202,13 @@ async function handleCommand(interaction) {
   if (command === 'add') {
     const sellerId = sellerIdFrom(option(interaction, 'storefront'));
     const label = String(option(interaction, 'name') || '').trim().slice(0, 80);
-    const result = await addStorefrontOnce({
-      find: async () => {
-        const response = await axios.get(storefrontUrl(), {
-          headers: supabaseAdminHeaders(),
-          params: { select: 'id,seller_id,label', airtable_student_id: `eq.${student.id}`, seller_id: `eq.${sellerId}`, limit: 1 },
-          timeout: platformConfig.requestTimeoutMs,
-        });
-        return response.data?.[0] || null;
-      },
-      insert: async () => {
-        const response = await axios.post(storefrontUrl(), [{
-          airtable_student_id: student.id, owner_email: student.email, seller_id: sellerId, label,
-        }], { headers: { ...supabaseAdminHeaders(), Prefer: 'return=representation' }, timeout: platformConfig.requestTimeoutMs });
-        return response.data?.[0];
-      },
-    });
+    const result = await stores.add(student, sellerId, label);
     if (!result.added) return message(`✅ You're already tracking **${result.storefront.label || sellerId}** (${sellerId}). Use \`/viewlist\` to see your saved storefronts.`);
     return message(`✅ Now tracking **${label || sellerId}** (${sellerId}). The first tracker check creates a baseline; later new listings will alert this channel.`);
   }
   if (command === 'remove') {
     const sellerId = sellerIdFrom(option(interaction, 'storefront'));
-    await axios.delete(storefrontUrl(), {
-      headers: supabaseAdminHeaders(),
-      params: { airtable_student_id: `eq.${student.id}`, seller_id: `eq.${sellerId}` },
-      timeout: platformConfig.requestTimeoutMs,
-    });
+    await stores.remove(student, { seller_id: `eq.${sellerId}` });
     return message(`✅ Removed **${sellerId}** from your tracked storefronts.`);
   }
   if (command === 'viewlist') {
