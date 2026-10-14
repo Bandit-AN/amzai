@@ -313,14 +313,14 @@ const selectLoginTab = (studentMode) => {
 };
 
 function renderStorefronts(storefronts) {
-  $('#memberTrackedStores').textContent = storefronts.length;
+  $('#memberTrackedStores').textContent = storefronts.filter((item) => !item.blocked).length;
   const list = $('#storefrontList');
   if (!supabaseAccessToken) {
     list.innerHTML = '<div class="empty-state">Sign in with Google to manage storefronts.</div>';
     return;
   }
   list.innerHTML = storefronts.length ? storefronts.map((item) => `<div class="storefront-row">
-    <div><strong>${escapeHtml(item.label || item.seller_id)}</strong><small>${escapeHtml(item.seller_id)} · tracking new listings</small></div>
+    <div><strong>${escapeHtml(item.label || item.seller_id)}</strong><small>${escapeHtml(item.seller_id)} · ${item.blocked ? 'Protected; tracking disabled' : 'tracking new listings'}</small></div>
     <button class="remove-storefront" type="button" data-storefront-id="${escapeHtml(item.id)}">Remove</button>
   </div>`).join('') : '<div class="empty-state">No competitors tracked yet.</div>';
 }

@@ -2,6 +2,7 @@ import axios from 'axios';
 import { randomUUID } from 'node:crypto';
 import { processStorefront } from '../lib/storefront-delivery.js';
 import { parseSellerId, storefrontRecords, validSellerId, visibleStorefronts } from '../lib/storefront-records.js';
+import { isBlockedStorefront } from '../lib/storefront-policy.js';
 
 import { handleOrderTrackingCron } from '../lib/order-tracking.js';
 
@@ -55,7 +56,7 @@ async function handleStudentStorefronts(request, response, identity) {
   // with existing portal rows and make the whole list inaccessible.
   if (request.method === 'GET') {
     const rows = visibleStorefronts(await stores.list(student));
-    return jsonResponse(response, 200, { ok: true, storefronts: rows.map(({ id, seller_id, label, created_at }) => ({ id, seller_id, label, created_at })) });
+    return jsonResponse(response, 200, { ok: true, storefronts: rows.map(({ id, seller_id, label, created_at, blocked }) => ({ id, seller_id, label, created_at, blocked })) });
   }
   if (request.method === 'POST') {
     const body = await readJsonBody(request);
@@ -91,7 +92,7 @@ async function configuredStorefronts() {
     const byEmail = new Map(students.map((student) => [student.email, student]));
     const byId = new Map(students.map((student) => [student.id, student]));
     for (const row of response.data || []) {
-      if (!validSellerId(row.seller_id)) continue;
+      if (!validSellerId(row.seller_id) || isBlockedStorefront(row.seller_id)) continue;
       const student = row.airtable_student_id ? byId.get(row.airtable_student_id)
         : byEmail.get(String(row.owner_email || '').trim().toLowerCase());
       if (!student) continue;
@@ -106,7 +107,7 @@ async function configuredStorefronts() {
     }
   }
   for (const entry of config.amazonTrackedSellers) {
-    if (!validSellerId(entry.sellerId)) continue;
+    if (!validSellerId(entry.sellerId) || isBlockedStorefront(entry.sellerId)) continue;
     tracked.push({ ...entry, ownerKey: 'legacy', webhook: config.storefrontDiscordWebhookUrl });
   }
   return tracked;
