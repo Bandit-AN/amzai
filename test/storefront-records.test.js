@@ -3,6 +3,25 @@ import assert from 'node:assert/strict';
 import { parseSellerId, ownedStorefrontParams, visibleStorefronts, storefrontRecords } from '../lib/storefront-records.js';
 
 const seller = 'A2UCDC7R7NY4ET';
+test('rename updates only labels for the exact seller within the student scope', async () => {
+  const student = { id: 'recStudent', email: 'Student@example.com' };
+  let calls = 0;
+  const repo = storefrontRecords({ supabaseUrl: 'https://example.com', supabaseServiceRoleKey: 'test' }, {
+    patch: async (_, body, options) => {
+      calls++;
+      assert.deepEqual(body, { label: 'New Name' });
+      assert.equal(options.params.or, ownedStorefrontParams(student).or);
+      assert.equal(options.params.seller_id, `eq.${seller}`);
+      assert.equal(options.headers.Prefer, 'return=representation');
+      return { data: calls === 1 ? [{ seller_id: seller, ...body }] : [] };
+    },
+  });
+  assert.equal((await repo.rename(student, seller.toLowerCase(), ' New Name ')).label, 'New Name');
+  assert.equal(await repo.rename(student, seller, 'New Name'), null);
+  for (const name of ['', '   ', 'x'.repeat(81)]) await assert.rejects(repo.rename(student, seller, name), /storefront name/);
+  await assert.rejects(repo.rename(student, 'LOOKUP', 'New Name'), /valid Amazon/);
+  assert.equal(calls, 2);
+});
 test('accepts seller tokens and Amazon merchant links, not arbitrary URL path text', () => {
   for (const value of [seller.toLowerCase(), `https://www.amazon.com/sp?seller=${seller}`, `https://www.amazon.com/s?me=${seller}`]) assert.equal(parseSellerId(value), seller);
   for (const value of ['LOOKUP', 'lookup', 'https://www.amazon.com/lookup', 'https://selleramp.com/lookup', `https://evil.example/?seller=${seller}`, 'https://www.amazon.com/stores/SomeBrand/page/123456789012']) assert.throws(() => parseSellerId(value), /valid Amazon seller ID/);

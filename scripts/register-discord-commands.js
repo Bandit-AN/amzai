@@ -19,6 +19,10 @@ const commands = [
     name: 'remove', description: 'Stop tracking an Amazon competitor storefront',
     options: [{ type: 3, name: 'storefront', description: 'Amazon seller ID', required: true }],
   },
+  { name: 'rename', description: 'Change the name of one of your tracked storefronts', options: [
+    { type: 3, name: 'storefront', description: 'Amazon seller ID or storefront URL', required: true },
+    { type: 3, name: 'name', description: 'New storefront name', required: true, min_length: 1, max_length: 80 },
+  ] },
   { name: 'viewlist', description: 'View your tracked Amazon storefronts' },
   {
     name: 'scan',

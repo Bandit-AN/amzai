@@ -71,6 +71,30 @@ test('wrong private channel cannot read or insert storefronts', async (t) => {
   assert.deepEqual(events, ['ack', 'student', 'edit']);
   assert.match(replies[0].content, /assigned private/);
 });
+test('signed rename acknowledges first and updates the owned storefront label', async (t) => {
+  const { events, replies } = backend(t);
+  t.mock.method(axios, 'patch', async (url, data, options) => {
+    if (url.includes('/rest/v1/')) {
+      assert.deepEqual(events, ['ack', 'student']);
+      assert.equal(options.params.seller_id, 'eq.A2UCDC7R7NY4ET');
+      assert.match(options.params.or, /airtable_student_id.eq."record-1"/);
+      assert.deepEqual(data, { label: 'AutoScout' });
+      events.push('rename'); return { data: [{ ...data }] };
+    }
+    replies.push(data); return {};
+  });
+  await handler(request('rename', { data: { name: 'rename', options: [
+    { name: 'storefront', value: 'A2UCDC7R7NY4ET' }, { name: 'name', value: 'AutoScout' },
+  ] } }), response());
+  assert.match(replies[0].content, /Renamed.*AutoScout/);
+  assert.deepEqual(replies[0].allowed_mentions, { parse: [] });
+});
+test('rename in another channel cannot mutate storefronts', async (t) => {
+  const { events, replies } = backend(t, { channel: 'different' });
+  await handler(request('rename'), response());
+  assert.deepEqual(events, ['ack', 'student', 'edit']);
+  assert.match(replies[0].content, /assigned private/);
+});
 test('setup modal remains immediate and does not defer', async (t) => {
   const { events } = backend(t); const res = response();
   await handler(request('setup'), res);

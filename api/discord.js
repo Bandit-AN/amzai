@@ -86,6 +86,10 @@ const discordCommands = [
     { type: 3, name: 'storefront', description: 'Amazon seller ID or storefront URL', required: true },
     { type: 3, name: 'name', description: 'Optional competitor name', required: false, max_length: 80 },
   ] },
+  { name: 'rename', description: 'Change the name of one of your tracked storefronts', options: [
+    { type: 3, name: 'storefront', description: 'Amazon seller ID or storefront URL', required: true },
+    { type: 3, name: 'name', description: 'New storefront name', required: true, min_length: 1, max_length: 80 },
+  ] },
   { name: 'remove', description: 'Stop tracking an Amazon competitor storefront', options: [
     { type: 3, name: 'storefront', description: 'Amazon seller ID', required: true },
   ] },
@@ -206,6 +210,12 @@ async function handleCommand(interaction) {
     if (!result.added) return message(`✅ You're already tracking **${result.storefront.label || sellerId}** (${sellerId}). Use \`/viewlist\` to see your saved storefronts.`);
     return message(`✅ Now tracking **${label || sellerId}** (${sellerId}). The first tracker check creates a baseline; later new listings will alert this channel.`);
   }
+  if (command === 'rename') {
+    const sellerId = sellerIdFrom(option(interaction, 'storefront'));
+    const store = await stores.rename(student, sellerId, option(interaction, 'name'));
+    if (!store) return message('That storefront is not in your tracked list. Use `/viewlist` to check the seller ID, or `/add` to track it first.');
+    return message(`✅ Renamed **${sellerId}** to **${store.label}**. Your updated name will appear in \`/viewlist\` and your dashboard.`);
+  }
   if (command === 'remove') {
     const sellerId = sellerIdFrom(option(interaction, 'storefront'));
     await stores.remove(student, { seller_id: `eq.${sellerId}` });
@@ -215,7 +225,7 @@ async function handleCommand(interaction) {
     const stores = await listStorefronts(student);
     return message(storefrontListMessage(stores));
   }
-  return message('**Buy Box Bandit commands**\n`/setup` create or connect your account\n`/add` track a storefront\n`/remove` stop tracking a storefront\n`/viewlist` see your tracked storefronts');
+  return message('**Buy Box Bandit commands**\n`/setup` create or connect your account\n`/add` track a storefront\n`/rename` change a tracked storefront name\n`/remove` stop tracking a storefront\n`/viewlist` see your tracked storefronts');
 }
 
 export default async function handler(request, response) {
